@@ -20,10 +20,12 @@ import {
   Mail, 
   AlertCircle,
   Eye,
-  Filter
+  Filter,
+  Database
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Product, RfqStatus, QuotationRequest, StockStatus } from '../types';
+import { isSupabaseConfigured } from '../lib/supabase';
 
 export const AdminDashboardView: React.FC = () => {
   const { 
@@ -170,11 +172,22 @@ export const AdminDashboardView: React.FC = () => {
             <ShieldCheck className="w-6 h-6 text-white" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-black">ZEZ Operations & B2B Admin Console</h1>
               <span className="text-[10px] font-mono bg-emerald-950 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded">
                 SECURE AUTHENTICATED
               </span>
+              {isSupabaseConfigured() ? (
+                <span className="text-[10px] font-mono bg-emerald-900/60 text-emerald-300 border border-emerald-700 px-2 py-0.5 rounded flex items-center gap-1">
+                  <Database className="w-3 h-3 text-emerald-400" />
+                  <span>Supabase PostgreSQL: Connected</span>
+                </span>
+              ) : (
+                <span className="text-[10px] font-mono bg-blue-950 text-blue-300 border border-blue-800 px-2 py-0.5 rounded flex items-center gap-1">
+                  <Database className="w-3 h-3 text-blue-400" />
+                  <span>Database: Local Storage Mode</span>
+                </span>
+              )}
             </div>
             <p className="text-xs text-gray-400 mt-0.5">
               Distributor Management · Quotations · Catalog Inventory · Commercial Pricing

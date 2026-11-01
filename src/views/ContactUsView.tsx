@@ -11,6 +11,7 @@ import {
   MessageSquare
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { syncContactInquiryToSupabase } from '../services/supabaseService';
 
 export const ContactUsView: React.FC = () => {
   const { siteSettings, setActiveView } = useApp();
@@ -29,6 +30,9 @@ export const ContactUsView: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setFormSubmitted(true);
+    syncContactInquiryToSupabase(inquiry).catch(err => {
+      console.warn('[ZEZ Supabase] Inquiry sync error:', err);
+    });
   };
 
   return (

@@ -13,6 +13,8 @@ import { SAMPLE_PRODUCTS } from '../data/sampleProducts';
 import { CATEGORIES } from '../data/categories';
 import { BRANDS } from '../data/brands';
 
+import { syncRfqToSupabase, syncRfqStatusToSupabase } from '../services/supabaseService';
+
 export type ActiveView = 
   | 'home' 
   | 'shop' 
@@ -436,6 +438,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentCustomer(customer);
     clearQuoteCart();
     setActiveRfqForPrint(newRfq);
+
+    // Asynchronously synchronize to Supabase PostgreSQL cloud database
+    syncRfqToSupabase(newRfq).catch(err => {
+      console.warn('[ZEZ Supabase] Background sync error:', err);
+    });
+
     return newRfq;
   };
 
@@ -452,6 +460,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return rfq;
       })
     );
+
+    // Asynchronously synchronize status to Supabase
+    syncRfqStatusToSupabase(rfqId, status, adminNotes).catch(err => {
+      console.warn('[ZEZ Supabase] Status sync error:', err);
+    });
   };
 
   // Product CRUD
