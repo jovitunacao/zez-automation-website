@@ -1,0 +1,556 @@
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import { 
+  Product, 
+  ProductCategory, 
+  Brand, 
+  QuotationCartItem, 
+  QuotationRequest, 
+  RfqCustomerInfo, 
+  SiteSettings, 
+  FilterState 
+} from '../types';
+import { SAMPLE_PRODUCTS } from '../data/sampleProducts';
+import { CATEGORIES } from '../data/categories';
+import { BRANDS } from '../data/brands';
+
+export type ActiveView = 
+  | 'home' 
+  | 'shop' 
+  | 'categories' 
+  | 'brands' 
+  | 'product-detail' 
+  | 'rfq' 
+  | 'account' 
+  | 'admin' 
+  | 'about' 
+  | 'contact';
+
+interface AppContextType {
+  // Navigation
+  activeView: ActiveView;
+  setActiveView: (view: ActiveView) => void;
+  selectedProductId: string | null;
+  navigateToProduct: (productId: string) => void;
+  navigateToCategory: (categoryId: string) => void;
+  navigateToBrand: (brandName: string) => void;
+
+  // Catalog
+  products: Product[];
+  categories: ProductCategory[];
+  brands: Brand[];
+  addProduct: (product: Omit<Product, 'id'>) => void;
+  updateProduct: (product: Product) => void;
+  deleteProduct: (id: string) => void;
+
+  // Search & Filter
+  filters: FilterState;
+  setFilters: React.Dispatch<React.SetStateAction<FilterState>>;
+  resetFilters: () => void;
+  setSearchQuery: (query: string) => void;
+
+  // Quotation Cart
+  quoteCart: QuotationCartItem[];
+  addToQuoteCart: (product: Product, quantity?: number, notes?: string) => void;
+  removeFromQuoteCart: (productId: string) => void;
+  updateQuoteQuantity: (productId: string, quantity: number) => void;
+  clearQuoteCart: () => void;
+  isQuoteDrawerOpen: boolean;
+  setIsQuoteDrawerOpen: (open: boolean) => void;
+
+  // RFQ Submission & Management
+  rfqRequests: QuotationRequest[];
+  submitRfq: (customer: RfqCustomerInfo) => QuotationRequest;
+  updateRfqStatus: (rfqId: string, status: QuotationRequest['status'], adminNotes?: string) => void;
+  activeRfqForPrint: QuotationRequest | null;
+  setActiveRfqForPrint: (rfq: QuotationRequest | null) => void;
+
+  // Comparison Tool
+  compareList: Product[];
+  addToCompare: (product: Product) => void;
+  removeFromCompare: (productId: string) => void;
+  clearCompare: () => void;
+  isCompareModalOpen: boolean;
+  setIsCompareModalOpen: (open: boolean) => void;
+
+  // Customer Account
+  currentCustomer: RfqCustomerInfo | null;
+  setCurrentCustomer: (customer: RfqCustomerInfo | null) => void;
+  customerRfqs: QuotationRequest[];
+
+  // Site Settings
+  siteSettings: SiteSettings;
+  updateSiteSettings: (settings: Partial<SiteSettings>) => void;
+}
+
+const INITIAL_SETTINGS: SiteSettings = {
+  companyName: 'ZEZ Automation Corporation',
+  tagline: 'Powering Business Through Technology',
+  phonePrimary: '(02) 8800-9390',
+  phoneSecondary: '+63 917 800 9390',
+  mobileViber: '+63 917 800 9390',
+  emailSales: 'sales@zezautomation.ph',
+  emailSupport: 'support@zezautomation.ph',
+  officeAddress: 'Unit 1402, Corporate Center, Emerald Avenue, Ortigas Center, Pasig City, Metro Manila 1605 Philippines',
+  operatingHours: 'Mon - Fri: 8:30 AM - 5:30 PM (PST)',
+  bannerAnnouncement: 'Direct Corporate ICT Procurement & Project Pricing Available for Q4 2026. Submit your RFQ today.',
+  isBannerActive: true
+};
+
+const INITIAL_RFQS: QuotationRequest[] = [
+  {
+    id: 'ZEZ-RFQ-2026-9041',
+    createdAt: '2026-10-28T09:30:00Z',
+    status: 'Quotation Prepared',
+    customer: {
+      fullName: 'Engr. Jayson Morales',
+      companyName: 'Apex Data Logistics Inc.',
+      email: 'j.morales@apexlogistics.ph',
+      mobileNumber: '+63 917 554 1120',
+      deliveryCityProvince: 'Taguig City, Metro Manila',
+      deliveryAddress: '7th Ave, Bonifacio Global City, Taguig',
+      tinNumber: '241-890-432-000',
+      customerType: 'Company',
+      preferredContactMethod: 'Email',
+      targetDeliveryDate: '2026-11-15',
+      additionalRequirements: 'Delivery with official BIR receipt, 3-year local warranty certificates, and rack installation assistance.'
+    },
+    items: [
+      {
+        productId: 'prod-01',
+        productName: 'Cisco Catalyst 9200L 24-Port Gigabit PoE+ Managed Switch',
+        model: 'C9200L-24P-4G-E',
+        brand: 'Cisco',
+        sku: 'ZEZ-CS-9200L-24P',
+        mainImage: 'https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80',
+        quantity: 2,
+        unitPricePhp: 89500,
+        subtotalPhp: 179000
+      },
+      {
+        productId: 'prod-03',
+        productName: 'Ubiquiti UniFi U6 Enterprise Wi-Fi 6E Access Point',
+        model: 'U6-Enterprise',
+        brand: 'Ubiquiti',
+        sku: 'ZEZ-UB-U6-ENT',
+        mainImage: 'https://images.unsplash.com/photo-1563770660941-20978e870e26?auto=format&fit=crop&w=800&q=80',
+        quantity: 6,
+        unitPricePhp: 21500,
+        subtotalPhp: 129000
+      }
+    ],
+    totalEstimatedPhp: 308000,
+    adminNotes: 'Formal pro-forma quotation sent via sales email with 30-day price hold.',
+    assignedSpecialist: 'Marco Rivera (Enterprise Account Manager)',
+    validUntil: '2026-11-28'
+  },
+  {
+    id: 'ZEZ-RFQ-2026-9042',
+    createdAt: '2026-10-30T14:15:00Z',
+    status: 'Under Review',
+    customer: {
+      fullName: 'Patricia Santos',
+      companyName: 'Luzon Horizon Resort & Casino',
+      email: 'p.santos@luzonresorts.com',
+      mobileNumber: '+63 920 441 8899',
+      deliveryCityProvince: 'Clark Freeport Zone, Pampanga',
+      customerType: 'Company',
+      preferredContactMethod: 'Mobile / Phone',
+      additionalRequirements: 'Need urgent lead-time verification for CCTV coverage expansion.'
+    },
+    items: [
+      {
+        productId: 'prod-04',
+        productName: 'Hikvision 4MP AcuSense DarkFighter Motorized Varifocal Bullet IP Camera',
+        model: 'DS-2CD2646G2-IZS',
+        brand: 'Hikvision',
+        sku: 'ZEZ-HK-DS2646G2',
+        mainImage: 'https://images.unsplash.com/photo-1557597774-9d273605dfa9?auto=format&fit=crop&w=800&q=80',
+        quantity: 12,
+        unitPricePhp: 14800,
+        subtotalPhp: 177600
+      },
+      {
+        productId: 'prod-05',
+        productName: 'Dahua 16-Channel 1U 16-PoE WizMind 4K Network Video Recorder',
+        model: 'NVR5216-16P-I',
+        brand: 'Dahua',
+        sku: 'ZEZ-DH-NVR5216',
+        mainImage: 'https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80',
+        quantity: 1,
+        unitPricePhp: 28500,
+        subtotalPhp: 28500
+      }
+    ],
+    totalEstimatedPhp: 206100,
+    adminNotes: 'Checking warehouse stock in Pasig depot; stock confirmed for 10 units, 2 units arriving Nov 3.',
+    assignedSpecialist: 'Rina Dela Cruz (Security Systems Lead)',
+    validUntil: '2026-11-30'
+  }
+];
+
+const INITIAL_FILTER_STATE: FilterState = {
+  searchQuery: '',
+  selectedCategories: [],
+  selectedBrands: [],
+  stockFilter: [],
+  priceRange: [0, 250000],
+  sortBy: 'featured'
+};
+
+const AppContext = createContext<AppContextType | undefined>(undefined);
+
+export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Navigation
+  const [activeView, setActiveView] = useState<ActiveView>('home');
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+
+  // Products & Persistence
+  const [products, setProducts] = useState<Product[]>(() => {
+    try {
+      const stored = localStorage.getItem('zez_products');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.error(e);
+    }
+    return SAMPLE_PRODUCTS;
+  });
+
+  const [categories] = useState<ProductCategory[]>(CATEGORIES);
+  const [brands] = useState<Brand[]>(BRANDS);
+
+  // Quotation Cart
+  const [quoteCart, setQuoteCart] = useState<QuotationCartItem[]>(() => {
+    try {
+      const stored = localStorage.getItem('zez_quotation_cart');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.error(e);
+    }
+    return [];
+  });
+
+  const [isQuoteDrawerOpen, setIsQuoteDrawerOpen] = useState(false);
+
+  // RFQ Requests List
+  const [rfqRequests, setRfqRequests] = useState<QuotationRequest[]>(() => {
+    try {
+      const stored = localStorage.getItem('zez_rfqs');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.error(e);
+    }
+    return INITIAL_RFQS;
+  });
+
+  const [activeRfqForPrint, setActiveRfqForPrint] = useState<QuotationRequest | null>(null);
+
+  // Compare List
+  const [compareList, setCompareList] = useState<Product[]>([]);
+  const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
+
+  // Customer Profile
+  const [currentCustomer, setCurrentCustomer] = useState<RfqCustomerInfo | null>(() => {
+    try {
+      const stored = localStorage.getItem('zez_current_customer');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.error(e);
+    }
+    return {
+      fullName: 'Engr. Jayson Morales',
+      companyName: 'Apex Data Logistics Inc.',
+      email: 'j.morales@apexlogistics.ph',
+      mobileNumber: '+63 917 554 1120',
+      deliveryCityProvince: 'Taguig City, Metro Manila',
+      customerType: 'Company',
+      preferredContactMethod: 'Email'
+    };
+  });
+
+  // Filters
+  const [filters, setFilters] = useState<FilterState>(INITIAL_FILTER_STATE);
+
+  // Site Settings
+  const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
+    try {
+      const stored = localStorage.getItem('zez_site_settings');
+      if (stored) return JSON.parse(stored);
+    } catch (e) {
+      console.error(e);
+    }
+    return INITIAL_SETTINGS;
+  });
+
+  // Save to LocalStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('zez_products', JSON.stringify(products));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [products]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zez_quotation_cart', JSON.stringify(quoteCart));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [quoteCart]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zez_rfqs', JSON.stringify(rfqRequests));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [rfqRequests]);
+
+  useEffect(() => {
+    try {
+      if (currentCustomer) {
+        localStorage.setItem('zez_current_customer', JSON.stringify(currentCustomer));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  }, [currentCustomer]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zez_site_settings', JSON.stringify(siteSettings));
+    } catch (e) {
+      console.error(e);
+    }
+  }, [siteSettings]);
+
+  // Scroll to top on view change
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [activeView, selectedProductId]);
+
+  // Handlers
+  const navigateToProduct = (productId: string) => {
+    setSelectedProductId(productId);
+    setActiveView('product-detail');
+  };
+
+  const navigateToCategory = (categoryId: string) => {
+    setFilters(prev => ({
+      ...prev,
+      selectedCategories: [categoryId],
+      searchQuery: ''
+    }));
+    setActiveView('shop');
+  };
+
+  const navigateToBrand = (brandName: string) => {
+    setFilters(prev => ({
+      ...prev,
+      selectedBrands: [brandName],
+      searchQuery: ''
+    }));
+    setActiveView('shop');
+  };
+
+  const resetFilters = () => {
+    setFilters(INITIAL_FILTER_STATE);
+  };
+
+  const setSearchQuery = (query: string) => {
+    setFilters(prev => ({ ...prev, searchQuery: query }));
+  };
+
+  const addToQuoteCart = (product: Product, quantity = 1, notes = '') => {
+    setQuoteCart(prev => {
+      const existing = prev.find(item => item.product.id === product.id);
+      if (existing) {
+        return prev.map(item =>
+          item.product.id === product.id
+            ? { ...item, quantity: item.quantity + quantity, customNotes: notes || item.customNotes }
+            : item
+        );
+      }
+      return [...prev, { product, quantity, customNotes: notes }];
+    });
+    setIsQuoteDrawerOpen(true);
+  };
+
+  const removeFromQuoteCart = (productId: string) => {
+    setQuoteCart(prev => prev.filter(item => item.product.id !== productId));
+  };
+
+  const updateQuoteQuantity = (productId: string, quantity: number) => {
+    if (quantity <= 0) {
+      removeFromQuoteCart(productId);
+      return;
+    }
+    setQuoteCart(prev =>
+      prev.map(item => (item.product.id === productId ? { ...item, quantity } : item))
+    );
+  };
+
+  const clearQuoteCart = () => {
+    setQuoteCart([]);
+  };
+
+  const submitRfq = (customer: RfqCustomerInfo): QuotationRequest => {
+    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+    const newId = `ZEZ-RFQ-2026-${randomSuffix}`;
+    
+    // Calculate validity 30 days ahead
+    const validityDate = new Date();
+    validityDate.setDate(validityDate.getDate() + 30);
+    const validUntilStr = validityDate.toISOString().split('T')[0];
+
+    const items = quoteCart.map(item => ({
+      productId: item.product.id,
+      productName: item.product.name,
+      model: item.product.model,
+      brand: item.product.brand,
+      sku: item.product.sku,
+      mainImage: item.product.mainImage,
+      quantity: item.quantity,
+      unitPricePhp: item.product.pricePhp,
+      subtotalPhp: item.product.pricePhp ? item.product.pricePhp * item.quantity : undefined,
+      notes: item.customNotes
+    }));
+
+    const totalEstimatedPhp = items.reduce(
+      (sum, item) => sum + (item.subtotalPhp || 0), 
+      0
+    );
+
+    const newRfq: QuotationRequest = {
+      id: newId,
+      createdAt: new Date().toISOString(),
+      status: 'New',
+      customer,
+      items,
+      totalEstimatedPhp: totalEstimatedPhp > 0 ? totalEstimatedPhp : undefined,
+      validUntil: validUntilStr,
+      adminNotes: 'Inquiry received via ZEZ B2B web portal. Awaiting sales engineer assignment.'
+    };
+
+    setRfqRequests(prev => [newRfq, ...prev]);
+    setCurrentCustomer(customer);
+    clearQuoteCart();
+    setActiveRfqForPrint(newRfq);
+    return newRfq;
+  };
+
+  const updateRfqStatus = (rfqId: string, status: QuotationRequest['status'], adminNotes?: string) => {
+    setRfqRequests(prev =>
+      prev.map(rfq => {
+        if (rfq.id === rfqId) {
+          return {
+            ...rfq,
+            status,
+            adminNotes: adminNotes !== undefined ? adminNotes : rfq.adminNotes
+          };
+        }
+        return rfq;
+      })
+    );
+  };
+
+  // Product CRUD
+  const addProduct = (newProd: Omit<Product, 'id'>) => {
+    const id = `prod-${Date.now()}`;
+    const product: Product = { ...newProd, id };
+    setProducts(prev => [product, ...prev]);
+  };
+
+  const updateProduct = (updated: Product) => {
+    setProducts(prev => prev.map(p => (p.id === updated.id ? updated : p)));
+  };
+
+  const deleteProduct = (id: string) => {
+    setProducts(prev => prev.filter(p => p.id !== id));
+  };
+
+  // Compare
+  const addToCompare = (product: Product) => {
+    setCompareList(prev => {
+      if (prev.find(p => p.id === product.id)) return prev;
+      if (prev.length >= 4) {
+        return [...prev.slice(1), product];
+      }
+      return [...prev, product];
+    });
+    setIsCompareModalOpen(true);
+  };
+
+  const removeFromCompare = (productId: string) => {
+    setCompareList(prev => prev.filter(p => p.id !== productId));
+  };
+
+  const clearCompare = () => {
+    setCompareList([]);
+  };
+
+  const updateSiteSettings = (newSettings: Partial<SiteSettings>) => {
+    setSiteSettings(prev => ({ ...prev, ...newSettings }));
+  };
+
+  // Customer RFQs
+  const customerRfqs = rfqRequests.filter(
+    rfq => currentCustomer && rfq.customer.email.toLowerCase() === currentCustomer.email.toLowerCase()
+  );
+
+  return (
+    <AppContext.Provider
+      value={{
+        activeView,
+        setActiveView,
+        selectedProductId,
+        navigateToProduct,
+        navigateToCategory,
+        navigateToBrand,
+        products,
+        categories,
+        brands,
+        addProduct,
+        updateProduct,
+        deleteProduct,
+        filters,
+        setFilters,
+        resetFilters,
+        setSearchQuery,
+        quoteCart,
+        addToQuoteCart,
+        removeFromQuoteCart,
+        updateQuoteQuantity,
+        clearQuoteCart,
+        isQuoteDrawerOpen,
+        setIsQuoteDrawerOpen,
+        rfqRequests,
+        submitRfq,
+        updateRfqStatus,
+        activeRfqForPrint,
+        setActiveRfqForPrint,
+        compareList,
+        addToCompare,
+        removeFromCompare,
+        clearCompare,
+        isCompareModalOpen,
+        setIsCompareModalOpen,
+        currentCustomer,
+        setCurrentCustomer,
+        customerRfqs,
+        siteSettings,
+        updateSiteSettings
+      }}
+    >
+      {children}
+    </AppContext.Provider>
+  );
+};
+
+export const useApp = () => {
+  const context = useContext(AppContext);
+  if (!context) {
+    throw new Error('useApp must be used within an AppProvider');
+  }
+  return context;
+};

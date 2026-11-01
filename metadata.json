@@ -1,0 +1,6 @@
+{
+  "name": "ZEZ Automation Corporation - ICT Equipment & Supplies Distributor",
+  "description": "Premier Philippine B2B distributor of enterprise ICT hardware, networking infrastructure, CCTV security systems, and technology solutions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
