@@ -65,6 +65,7 @@ export interface Product {
   includedAccessories: string[];
   datasheetUrl?: string;
   datasheetFileName?: string;
+  isDemo?: boolean;
 }
 
 export interface QuotationCartItem {
@@ -108,6 +109,7 @@ export interface QuotationRequest {
   adminNotes?: string;
   assignedSpecialist?: string;
   validUntil: string;
+  isDemo?: boolean;
 }
 
 export interface SiteSettings {

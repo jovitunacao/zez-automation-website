@@ -123,6 +123,7 @@ CREATE TABLE IF NOT EXISTS public.products (
     is_featured BOOLEAN DEFAULT false,
     is_new_arrival BOOLEAN DEFAULT false,
     is_published BOOLEAN DEFAULT true,
+    is_demo BOOLEAN DEFAULT false,
     main_image TEXT NOT NULL,
     gallery_images TEXT[] DEFAULT '{}',
     key_specs TEXT[] DEFAULT '{}',
@@ -155,6 +156,7 @@ CREATE TABLE IF NOT EXISTS public.quotation_requests (
     target_delivery_date DATE,
     additional_requirements TEXT,
     total_estimated_php NUMERIC(14, 2),
+    is_demo BOOLEAN DEFAULT false,
     admin_notes TEXT,
     assigned_specialist VARCHAR(255) DEFAULT 'Marco Rivera (Enterprise Account Manager)',
     valid_until DATE,
@@ -398,6 +400,140 @@ FOR ALL
 TO authenticated 
 USING (public.is_admin()) 
 WITH CHECK (public.is_admin());
+
+-- ------------------------------------------------------------------------------
+-- 11.7 ATOMIC QUOTATION SUBMISSION STORED PROCEDURE
+-- Ensures RFQ header and all equipment line items are saved in one single transaction.
+-- If any line fails or validation is not met, the entire submission rolls back.
+-- Prevents anonymous users from tampering with admin_notes or assigned_specialist.
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.submit_quotation_request(rfq_data JSONB)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    new_rfq_id VARCHAR(100);
+    item JSONB;
+    total_items INTEGER := 0;
+BEGIN
+    -- 1. Validate required fields
+    IF rfq_data->>'id' IS NULL OR trim(rfq_data->>'id') = '' THEN
+        RAISE EXCEPTION 'Quotation Request Reference ID is required';
+    END IF;
+
+    IF rfq_data->>'customer_full_name' IS NULL OR trim(rfq_data->>'customer_full_name') = '' THEN
+        RAISE EXCEPTION 'Customer full name is required';
+    END IF;
+
+    IF rfq_data->>'customer_email' IS NULL OR trim(rfq_data->>'customer_email') = '' THEN
+        RAISE EXCEPTION 'Customer email address is required';
+    END IF;
+
+    IF rfq_data->>'customer_mobile_number' IS NULL OR trim(rfq_data->>'customer_mobile_number') = '' THEN
+        RAISE EXCEPTION 'Customer mobile number is required';
+    END IF;
+
+    IF rfq_data->'items' IS NULL OR jsonb_array_length(rfq_data->'items') = 0 THEN
+        RAISE EXCEPTION 'At least one equipment item is required to submit a quotation request';
+    END IF;
+
+    new_rfq_id := rfq_data->>'id';
+
+    -- 2. Insert master quotation header with enforced defaults
+    -- Note: Admin-only fields (admin_notes, assigned_specialist) cannot be set by public callers
+    INSERT INTO public.quotation_requests (
+        id,
+        user_id,
+        status,
+        customer_full_name,
+        customer_company_name,
+        customer_email,
+        customer_mobile_number,
+        delivery_city_province,
+        delivery_address,
+        tin_number,
+        customer_type,
+        preferred_contact_method,
+        target_delivery_date,
+        additional_requirements,
+        total_estimated_php,
+        is_demo,
+        assigned_specialist,
+        created_at,
+        updated_at
+    ) VALUES (
+        new_rfq_id,
+        CASE 
+            WHEN rfq_data->>'user_id' IS NOT NULL AND rfq_data->>'user_id' <> '' 
+            THEN (rfq_data->>'user_id')::UUID 
+            ELSE NULL 
+        END,
+        'New', -- Always enforce initial status 'New'
+        trim(rfq_data->>'customer_full_name'),
+        NULLIF(trim(rfq_data->>'customer_company_name'), ''),
+        lower(trim(rfq_data->>'customer_email')),
+        trim(rfq_data->>'customer_mobile_number'),
+        COALESCE(NULLIF(trim(rfq_data->>'delivery_city_province'), ''), 'Metro Manila'),
+        NULLIF(trim(rfq_data->>'delivery_address'), ''),
+        NULLIF(trim(rfq_data->>'tin_number'), ''),
+        COALESCE(NULLIF(trim(rfq_data->>'customer_type'), ''), 'Company'),
+        COALESCE(NULLIF(trim(rfq_data->>'preferred_contact_method'), ''), 'Email'),
+        CASE 
+            WHEN rfq_data->>'target_delivery_date' IS NOT NULL AND rfq_data->>'target_delivery_date' <> '' 
+            THEN (rfq_data->>'target_delivery_date')::DATE 
+            ELSE NULL 
+        END,
+        NULLIF(trim(rfq_data->>'additional_requirements'), ''),
+        COALESCE((rfq_data->>'total_estimated_php')::NUMERIC, 0),
+        COALESCE((rfq_data->>'is_demo')::BOOLEAN, false),
+        'Marco Rivera (Enterprise Account Manager)',
+        NOW(),
+        NOW()
+    );
+
+    -- 3. Insert all line items atomically
+    FOR item IN SELECT * FROM jsonb_array_elements(rfq_data->'items')
+    LOOP
+        INSERT INTO public.quotation_items (
+            quotation_request_id,
+            product_id,
+            product_name,
+            model,
+            brand,
+            sku,
+            main_image,
+            quantity,
+            unit_price_php,
+            subtotal_php,
+            notes
+        ) VALUES (
+            new_rfq_id,
+            NULLIF(trim(item->>'product_id'), ''),
+            COALESCE(item->>'product_name', 'ICT Equipment'),
+            COALESCE(item->>'model', 'Standard Model'),
+            COALESCE(item->>'brand', 'Generic'),
+            COALESCE(item->>'sku', 'ZEZ-ITEM'),
+            item->>'main_image',
+            GREATEST(COALESCE((item->>'quantity')::INTEGER, 1), 1),
+            (item->>'unit_price_php')::NUMERIC,
+            (item->>'subtotal_php')::NUMERIC,
+            NULLIF(trim(item->>'notes'), '')
+        );
+        total_items := total_items + 1;
+    END LOOP;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'rfq_id', new_rfq_id,
+        'items_count', total_items
+    );
+END;
+$$;
+
+-- Grant execution permission to anonymous and authenticated users for quotation submissions
+GRANT EXECUTE ON FUNCTION public.submit_quotation_request(JSONB) TO anon, authenticated, service_role;
 
 -- ------------------------------------------------------------------------------
 -- 12. SUPABASE STORAGE BUCKETS (Product Images & Datasheets)
@@ -725,3 +861,24 @@ INSERT INTO public.products (
     'Dell-PowerEdge-R450-Spec-Sheet.pdf'
 )
 ON CONFLICT (id) DO NOTHING;
+
+-- Mark demonstration catalog products explicitly so they are distinguishable from live production inventory
+UPDATE public.products 
+SET is_demo = true 
+WHERE id IN ('prod-01', 'prod-02', 'prod-03', 'prod-04', 'prod-05', 'prod-06', 'prod-07', 'prod-08');
+
+-- ==============================================================================
+-- INSTRUCTIONS TO CREATE YOUR FIRST PRODUCTION ADMINISTRATOR ACCOUNT:
+-- 1. Create a user in Supabase Studio -> Authentication -> Users (e.g. admin@zezautomation.ph)
+-- 2. Copy the generated User UID (e.g. '00000000-0000-0000-0000-000000000000')
+-- 3. Execute the following SQL query in the Supabase SQL Editor:
+--
+--    INSERT INTO public.administrator_users (id, email, full_name, role, is_active)
+--    VALUES (
+--      'PASTE_USER_UUID_HERE',
+--      'admin@zezautomation.ph',
+--      'Engr. Eduardo Z. (Managing Director)',
+--      'super_admin',
+--      true
+--    );
+-- ==============================================================================

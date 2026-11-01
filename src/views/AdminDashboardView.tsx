@@ -21,7 +21,12 @@ import {
   AlertCircle,
   Eye,
   Filter,
-  Database
+  Database,
+  Lock,
+  LogOut,
+  RefreshCw,
+  UserCheck,
+  Key
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Product, RfqStatus, QuotationRequest, StockStatus } from '../types';
@@ -41,8 +46,21 @@ export const AdminDashboardView: React.FC = () => {
     siteSettings, 
     updateSiteSettings,
     setActiveView,
-    navigateToProduct
+    navigateToProduct,
+    adminUser,
+    isAdminAuthenticated,
+    adminLogin,
+    adminLogout,
+    isDbConnected,
+    refreshProducts
   } = useApp();
+
+  // Admin login states
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [refreshingCatalog, setRefreshingCatalog] = useState(false);
 
   const [activeAdminTab, setActiveAdminTab] = useState<'overview' | 'rfqs' | 'products' | 'categories' | 'settings'>('overview');
 
@@ -156,12 +174,123 @@ export const AdminDashboardView: React.FC = () => {
     setProductModalOpen(false);
   };
 
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginLoading(true);
+    setLoginError(null);
+    const res = await adminLogin(loginEmail, loginPassword);
+    if (!res.success) {
+      setLoginError(res.error || 'Failed to authenticate administrator account.');
+    }
+    setLoginLoading(false);
+  };
+
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
     updateSiteSettings(settingsForm);
     setSettingsSaved(true);
     setTimeout(() => setSettingsSaved(false), 3000);
   };
+
+  // If not authenticated, render the secure administrator login gate
+  if (!isAdminAuthenticated) {
+    return (
+      <div className="max-w-md mx-auto px-4 py-16">
+        <div className="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+          <div className="bg-[#292F36] p-6 text-white text-center">
+            <div className="w-14 h-14 bg-[#B5121B] rounded-xl flex items-center justify-center mx-auto mb-3 shadow-md">
+              <ShieldCheck className="w-8 h-8 text-white" />
+            </div>
+            <h2 className="text-xl font-bold tracking-tight">ZEZ Operations Portal</h2>
+            <p className="text-xs text-gray-300 mt-1">Authorized Administrator Authentication</p>
+          </div>
+
+          <div className="p-6 space-y-5">
+            {loginError && (
+              <div className="bg-red-50 border border-red-200 p-3 rounded-lg text-xs text-red-700 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-[#B5121B] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Access Denied</p>
+                  <p>{loginError}</p>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-xs text-gray-600 flex items-start gap-2">
+              <Lock className="w-4 h-4 text-gray-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-semibold text-gray-800">Protected B2B Distributor Resource</p>
+                <p className="text-[11px] text-gray-500 mt-0.5">
+                  Access requires Supabase administrator role verification. Unauthenticated requests cannot read or modify quotation records.
+                </p>
+              </div>
+            </div>
+
+            <form onSubmit={handleAdminLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1">
+                  Administrator Email
+                </label>
+                <input
+                  type="email"
+                  required
+                  placeholder="admin@zezautomation.ph"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  className="w-full text-xs px-3.5 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:border-[#B5121B] focus:ring-1 focus:ring-[#B5121B]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 uppercase tracking-wide mb-1">
+                  Password
+                </label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••••••••••"
+                  value={loginPassword}
+                  onChange={(e) => setLoginPassword(e.target.value)}
+                  className="w-full text-xs px-3.5 py-2.5 rounded-lg border border-gray-300 focus:outline-none focus:border-[#B5121B] focus:ring-1 focus:ring-[#B5121B]"
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={loginLoading}
+                className="w-full bg-[#B5121B] hover:bg-[#8F1018] text-white py-2.5 px-4 rounded-lg font-bold text-xs tracking-wider uppercase transition-colors shadow-sm disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer"
+              >
+                {loginLoading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Verifying Credentials...</span>
+                  </>
+                ) : (
+                  <>
+                    <Key className="w-4 h-4" />
+                    <span>Authenticate & Access Console</span>
+                  </>
+                )}
+              </button>
+            </form>
+
+            <div className="pt-2 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+              <button
+                type="button"
+                onClick={() => setActiveView('shop')}
+                className="hover:text-gray-900 underline cursor-pointer"
+              >
+                ← Return to Public Catalog
+              </button>
+              <span className="text-[11px] text-gray-400">
+                {isSupabaseConfigured() ? 'Supabase Auth Mode' : 'Local Sandbox Mode'}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-8 py-8 space-y-8">
@@ -189,59 +318,92 @@ export const AdminDashboardView: React.FC = () => {
                 </span>
               )}
             </div>
-            <p className="text-xs text-gray-400 mt-0.5">
-              Distributor Management · Quotations · Catalog Inventory · Commercial Pricing
-            </p>
+            <div className="flex items-center gap-3 text-xs text-gray-400 mt-1 flex-wrap">
+              <span className="flex items-center gap-1.5 text-gray-300">
+                <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="font-semibold text-white">{adminUser?.fullName || adminUser?.email || 'Administrator'}</span>
+                <span className="text-[10px] bg-red-900/60 text-red-300 border border-red-700 px-1.5 py-0.2 rounded font-mono uppercase font-bold">
+                  {adminUser?.role || 'admin'}
+                </span>
+              </span>
+              <span>·</span>
+              <span>Distributor Operations & Quotations Management</span>
+            </div>
           </div>
         </div>
 
-        {/* View Switcher Tabs */}
-        <div className="flex items-center gap-1.5 p-1 bg-gray-800 rounded-lg text-xs font-semibold overflow-x-auto">
-          <button
-            onClick={() => setActiveAdminTab('overview')}
-            className={`px-3 py-1.5 rounded-md transition-colors ${
-              activeAdminTab === 'overview' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
-            }`}
-          >
-            Overview
-          </button>
-          <button
-            onClick={() => setActiveAdminTab('rfqs')}
-            className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 ${
-              activeAdminTab === 'rfqs' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
-            }`}
-          >
-            <span>Quotations (RFQs)</span>
-            {pendingRfqsCount > 0 && (
-              <span className="bg-amber-400 text-gray-950 px-1.5 py-0.2 rounded-full font-bold text-[10px]">
-                {pendingRfqsCount}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveAdminTab('products')}
-            className={`px-3 py-1.5 rounded-md transition-colors ${
-              activeAdminTab === 'products' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
-            }`}
-          >
-            Products ({products.length})
-          </button>
-          <button
-            onClick={() => setActiveAdminTab('categories')}
-            className={`px-3 py-1.5 rounded-md transition-colors ${
-              activeAdminTab === 'categories' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
-            }`}
-          >
-            Categories & Brands
-          </button>
-          <button
-            onClick={() => setActiveAdminTab('settings')}
-            className={`px-3 py-1.5 rounded-md transition-colors ${
-              activeAdminTab === 'settings' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
-            }`}
-          >
-            Settings
-          </button>
+        {/* View Switcher Tabs & Actions */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 p-1 bg-gray-800 rounded-lg text-xs font-semibold overflow-x-auto">
+            <button
+              onClick={() => setActiveAdminTab('overview')}
+              className={`px-3 py-1.5 rounded-md transition-colors ${
+                activeAdminTab === 'overview' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              Overview
+            </button>
+            <button
+              onClick={() => setActiveAdminTab('rfqs')}
+              className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 ${
+                activeAdminTab === 'rfqs' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              <span>Quotations (RFQs)</span>
+              {pendingRfqsCount > 0 && (
+                <span className="bg-amber-400 text-gray-950 px-1.5 py-0.2 rounded-full font-bold text-[10px]">
+                  {pendingRfqsCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveAdminTab('products')}
+              className={`px-3 py-1.5 rounded-md transition-colors ${
+                activeAdminTab === 'products' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              Products ({products.length})
+            </button>
+            <button
+              onClick={() => setActiveAdminTab('categories')}
+              className={`px-3 py-1.5 rounded-md transition-colors ${
+                activeAdminTab === 'categories' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              Categories & Brands
+            </button>
+            <button
+              onClick={() => setActiveAdminTab('settings')}
+              className={`px-3 py-1.5 rounded-md transition-colors ${
+                activeAdminTab === 'settings' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              Settings
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={async () => {
+                setRefreshingCatalog(true);
+                await refreshProducts();
+                setRefreshingCatalog(false);
+              }}
+              disabled={refreshingCatalog}
+              className="p-2 text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg border border-gray-700 transition-colors cursor-pointer"
+              title="Sync / Refresh Catalog with Supabase"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshingCatalog ? 'animate-spin text-[#B5121B]' : ''}`} />
+            </button>
+            <button
+              onClick={() => adminLogout()}
+              className="flex items-center gap-1 bg-gray-800 hover:bg-red-950/80 text-gray-300 hover:text-red-300 px-3 py-1.5 rounded-lg border border-gray-700 text-xs font-semibold transition-colors cursor-pointer"
+              title="Sign out of Admin Console"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Sign Out</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -533,7 +695,21 @@ export const AdminDashboardView: React.FC = () => {
                       </td>
                       <td className="py-3 px-3 font-semibold text-[#B5121B]">{prod.brand}</td>
                       <td className="py-3 px-3 text-gray-600">{prod.categoryName}</td>
-                      <td className="py-3 px-3 font-mono text-[11px] text-gray-500">{prod.sku}</td>
+                      <td className="py-3 px-3">
+                        <div className="font-mono text-[11px] font-semibold text-gray-800">{prod.sku}</div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          {prod.isDemo ? (
+                            <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200" title="Demonstration catalog product">
+                              Demo
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200" title="Production record in Supabase">
+                              Database
+                            </span>
+                          )}
+                          <span className="text-[10px] text-gray-400 font-mono truncate max-w-[100px]">{prod.model}</span>
+                        </div>
+                      </td>
                       <td className="py-3 px-3 text-right font-mono font-bold text-gray-900">
                         {prod.pricePhp ? `₱${prod.pricePhp.toLocaleString()}` : 'Project Pricing'}
                       </td>

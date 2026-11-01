@@ -14,7 +14,8 @@ import {
   Sparkles,
   Phone,
   Mail,
-  HelpCircle
+  HelpCircle,
+  AlertCircle
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { CustomerType, ContactMethod, RfqCustomerInfo, QuotationRequest } from '../types';
@@ -48,23 +49,33 @@ export const RfqCheckoutView: React.FC = () => {
 
   const [submittedRfq, setSubmittedRfq] = useState<QuotationRequest | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [rfqError, setRfqError] = useState<string | null>(null);
 
   const totalEstimated = quoteCart.reduce(
     (sum, item) => sum + (item.product.pricePhp ? item.product.pricePhp * item.quantity : 0),
     0
   );
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (quoteCart.length === 0) return;
+    if (quoteCart.length === 0 || isSubmitting) return;
 
     setIsSubmitting(true);
-    setTimeout(() => {
-      const newRfq = submitRfq(formData);
-      setSubmittedRfq(newRfq);
+    setRfqError(null);
+
+    try {
+      const result = await submitRfq(formData);
+      if (result.success && result.rfq) {
+        setSubmittedRfq(result.rfq);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        setRfqError(result.error || 'Failed to submit quotation request. Please check your connection and try again.');
+      }
+    } catch (err: any) {
+      setRfqError(err.message || 'An unexpected error occurred during quotation submission.');
+    } finally {
       setIsSubmitting(false);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }, 600);
+    }
   };
 
   const fillDemoData = () => {
@@ -467,6 +478,17 @@ export const RfqCheckoutView: React.FC = () => {
               <span className="text-base text-[#B5121B]">₱{totalEstimated.toLocaleString()}</span>
             </div>
           </div>
+
+          {/* Submission Error Banner */}
+          {rfqError && (
+            <div className="p-3 bg-red-50 text-[#8F1018] rounded-lg border border-red-200 text-xs flex items-start gap-2 animate-fadeIn">
+              <AlertCircle className="w-4 h-4 text-[#B5121B] shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Quotation Submission Error</p>
+                <p className="text-[11px] mt-0.5">{rfqError}</p>
+              </div>
+            </div>
+          )}
 
           {/* Submit Button */}
           <button

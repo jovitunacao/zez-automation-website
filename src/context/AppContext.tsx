@@ -12,8 +12,19 @@ import {
 import { SAMPLE_PRODUCTS } from '../data/sampleProducts';
 import { CATEGORIES } from '../data/categories';
 import { BRANDS } from '../data/brands';
-
-import { syncRfqToSupabase, syncRfqStatusToSupabase } from '../services/supabaseService';
+import { 
+  syncRfqToSupabase, 
+  syncRfqStatusToSupabase, 
+  fetchProductsFromSupabase, 
+  createProductInSupabase, 
+  updateProductInSupabase, 
+  deleteProductInSupabase,
+  signInAdministrator,
+  signOutAdministrator,
+  checkActiveAdminSession,
+  fetchAdminRfqsFromSupabase
+} from '../services/supabaseService';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
 export type ActiveView = 
   | 'home' 
@@ -26,6 +37,13 @@ export type ActiveView =
   | 'admin' 
   | 'about' 
   | 'contact';
+
+export interface AdminUserSession {
+  id: string;
+  email: string;
+  fullName?: string;
+  role?: string;
+}
 
 interface AppContextType {
   // Navigation
@@ -40,9 +58,11 @@ interface AppContextType {
   products: Product[];
   categories: ProductCategory[];
   brands: Brand[];
-  addProduct: (product: Omit<Product, 'id'>) => void;
-  updateProduct: (product: Product) => void;
-  deleteProduct: (id: string) => void;
+  productsLoading: boolean;
+  refreshProducts: () => Promise<void>;
+  addProduct: (product: Omit<Product, 'id'>) => Promise<void>;
+  updateProduct: (product: Product) => Promise<void>;
+  deleteProduct: (id: string) => Promise<void>;
 
   // Search & Filter
   filters: FilterState;
@@ -61,8 +81,8 @@ interface AppContextType {
 
   // RFQ Submission & Management
   rfqRequests: QuotationRequest[];
-  submitRfq: (customer: RfqCustomerInfo) => QuotationRequest;
-  updateRfqStatus: (rfqId: string, status: QuotationRequest['status'], adminNotes?: string) => void;
+  submitRfq: (customer: RfqCustomerInfo) => Promise<{ success: boolean; rfq?: QuotationRequest; error?: string }>;
+  updateRfqStatus: (rfqId: string, status: QuotationRequest['status'], adminNotes?: string) => Promise<void>;
   activeRfqForPrint: QuotationRequest | null;
   setActiveRfqForPrint: (rfq: QuotationRequest | null) => void;
 
@@ -82,6 +102,13 @@ interface AppContextType {
   // Site Settings
   siteSettings: SiteSettings;
   updateSiteSettings: (settings: Partial<SiteSettings>) => void;
+
+  // Supabase Database & Admin Authentication
+  isDbConnected: boolean;
+  adminUser: AdminUserSession | null;
+  isAdminAuthenticated: boolean;
+  adminLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  adminLogout: () => Promise<void>;
 }
 
 const INITIAL_SETTINGS: SiteSettings = {
@@ -143,7 +170,8 @@ const INITIAL_RFQS: QuotationRequest[] = [
     totalEstimatedPhp: 308000,
     adminNotes: 'Formal pro-forma quotation sent via sales email with 30-day price hold.',
     assignedSpecialist: 'Marco Rivera (Enterprise Account Manager)',
-    validUntil: '2026-11-28'
+    validUntil: '2026-11-28',
+    isDemo: true
   },
   {
     id: 'ZEZ-RFQ-2026-9042',
@@ -186,7 +214,8 @@ const INITIAL_RFQS: QuotationRequest[] = [
     totalEstimatedPhp: 206100,
     adminNotes: 'Checking warehouse stock in Pasig depot; stock confirmed for 10 units, 2 units arriving Nov 3.',
     assignedSpecialist: 'Rina Dela Cruz (Security Systems Lead)',
-    validUntil: '2026-11-30'
+    validUntil: '2026-11-30',
+    isDemo: true
   }
 ];
 
@@ -206,7 +235,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [activeView, setActiveView] = useState<ActiveView>('home');
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
-  // Products & Persistence
+  // Products & Cloud Database Persistence
   const [products, setProducts] = useState<Product[]>(() => {
     try {
       const stored = localStorage.getItem('zez_products');
@@ -214,9 +243,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (e) {
       console.error(e);
     }
-    return SAMPLE_PRODUCTS;
+    return SAMPLE_PRODUCTS.map(p => ({ ...p, isDemo: true }));
   });
 
+  const [productsLoading, setProductsLoading] = useState<boolean>(false);
   const [categories] = useState<ProductCategory[]>(CATEGORIES);
   const [brands] = useState<Brand[]>(BRANDS);
 
@@ -283,7 +313,68 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return INITIAL_SETTINGS;
   });
 
-  // Save to LocalStorage
+  // Admin Authentication & Database Connection
+  const [adminUser, setAdminUser] = useState<AdminUserSession | null>(null);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
+  const isDbConnected = isSupabaseConfigured();
+
+  // Load products from Supabase on initial application load
+  const refreshProducts = async () => {
+    if (!isSupabaseConfigured()) return;
+    setProductsLoading(true);
+    try {
+      const result = await fetchProductsFromSupabase();
+      if (result.data && result.data.length > 0) {
+        setProducts(result.data);
+      }
+    } catch (err) {
+      console.warn('[ZEZ App] Failed to load products from database:', err);
+    } finally {
+      setProductsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshProducts();
+  }, []);
+
+  // Check active admin session on load & attach auth listener
+  useEffect(() => {
+    const initAdminAuth = async () => {
+      if (!isSupabaseConfigured()) return;
+      const sessionResult = await checkActiveAdminSession();
+      if (sessionResult.success && sessionResult.user) {
+        setAdminUser(sessionResult.user);
+        setIsAdminAuthenticated(true);
+      }
+    };
+
+    initAdminAuth();
+
+    if (isSupabaseConfigured() && supabase) {
+      const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (session?.user) {
+          const authCheck = await checkActiveAdminSession();
+          if (authCheck.success && authCheck.user) {
+            setAdminUser(authCheck.user);
+            setIsAdminAuthenticated(true);
+          } else {
+            setAdminUser(null);
+            setIsAdminAuthenticated(false);
+          }
+        } else {
+          setAdminUser(null);
+          setIsAdminAuthenticated(false);
+        }
+      });
+
+      return () => {
+        authListener.subscription.unsubscribe();
+      };
+    }
+  }, []);
+
+  // Save to LocalStorage for offline resilience
   useEffect(() => {
     try {
       localStorage.setItem('zez_products', JSON.stringify(products));
@@ -396,7 +487,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setQuoteCart([]);
   };
 
-  const submitRfq = (customer: RfqCustomerInfo): QuotationRequest => {
+  // RFQ Submission with atomic validation
+  const submitRfq = async (customer: RfqCustomerInfo): Promise<{ success: boolean; rfq?: QuotationRequest; error?: string }> => {
+    if (quoteCart.length === 0) {
+      return { success: false, error: 'Your quotation cart is empty.' };
+    }
+
     const randomSuffix = Math.floor(1000 + Math.random() * 9000);
     const newId = `ZEZ-RFQ-2026-${randomSuffix}`;
     
@@ -431,23 +527,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       items,
       totalEstimatedPhp: totalEstimatedPhp > 0 ? totalEstimatedPhp : undefined,
       validUntil: validUntilStr,
-      adminNotes: 'Inquiry received via ZEZ B2B web portal. Awaiting sales engineer assignment.'
+      adminNotes: undefined, // Enforce no pre-set admin notes from client
+      assignedSpecialist: 'Marco Rivera (Enterprise Account Manager)',
+      isDemo: false
     };
+
+    // Synchronize to Supabase database and await confirmation
+    const syncRes = await syncRfqToSupabase(newRfq);
+    if (!syncRes.success) {
+      return { 
+        success: false, 
+        error: syncRes.error || 'Failed to record complete quotation in the database. Please try again.' 
+      };
+    }
 
     setRfqRequests(prev => [newRfq, ...prev]);
     setCurrentCustomer(customer);
     clearQuoteCart();
     setActiveRfqForPrint(newRfq);
-
-    // Asynchronously synchronize to Supabase PostgreSQL cloud database
-    syncRfqToSupabase(newRfq).catch(err => {
-      console.warn('[ZEZ Supabase] Background sync error:', err);
-    });
-
-    return newRfq;
+    return { success: true, rfq: newRfq };
   };
 
-  const updateRfqStatus = (rfqId: string, status: QuotationRequest['status'], adminNotes?: string) => {
+  const updateRfqStatus = async (rfqId: string, status: QuotationRequest['status'], adminNotes?: string) => {
     setRfqRequests(prev =>
       prev.map(rfq => {
         if (rfq.id === rfqId) {
@@ -461,25 +562,59 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
-    // Asynchronously synchronize status to Supabase
-    syncRfqStatusToSupabase(rfqId, status, adminNotes).catch(err => {
-      console.warn('[ZEZ Supabase] Status sync error:', err);
-    });
+    if (isSupabaseConfigured()) {
+      await syncRfqStatusToSupabase(rfqId, status, adminNotes);
+    }
   };
 
-  // Product CRUD
-  const addProduct = (newProd: Omit<Product, 'id'>) => {
+  // Product CRUD with Cloud Database Persistence
+  const addProduct = async (newProd: Omit<Product, 'id'>) => {
     const id = `prod-${Date.now()}`;
-    const product: Product = { ...newProd, id };
+    const product: Product = { ...newProd, id, isDemo: false };
     setProducts(prev => [product, ...prev]);
+
+    if (isSupabaseConfigured()) {
+      await createProductInSupabase(product);
+    }
   };
 
-  const updateProduct = (updated: Product) => {
+  const updateProduct = async (updated: Product) => {
     setProducts(prev => prev.map(p => (p.id === updated.id ? updated : p)));
+
+    if (isSupabaseConfigured()) {
+      await updateProductInSupabase(updated);
+    }
   };
 
-  const deleteProduct = (id: string) => {
+  const deleteProduct = async (id: string) => {
     setProducts(prev => prev.filter(p => p.id !== id));
+
+    if (isSupabaseConfigured()) {
+      await deleteProductInSupabase(id);
+    }
+  };
+
+  // Admin Auth Handlers
+  const adminLogin = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+    const result = await signInAdministrator(email, password);
+    if (result.success && result.user) {
+      setAdminUser(result.user);
+      setIsAdminAuthenticated(true);
+
+      // Load live RFQs from Supabase
+      const dbRfqs = await fetchAdminRfqsFromSupabase();
+      if (dbRfqs && dbRfqs.length > 0) {
+        setRfqRequests(dbRfqs);
+      }
+      return { success: true };
+    }
+    return { success: false, error: result.error || 'Authentication failed.' };
+  };
+
+  const adminLogout = async () => {
+    await signOutAdministrator();
+    setAdminUser(null);
+    setIsAdminAuthenticated(false);
   };
 
   // Compare
@@ -523,6 +658,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         products,
         categories,
         brands,
+        productsLoading,
+        refreshProducts,
         addProduct,
         updateProduct,
         deleteProduct,
@@ -552,7 +689,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCurrentCustomer,
         customerRfqs,
         siteSettings,
-        updateSiteSettings
+        updateSiteSettings,
+        isDbConnected,
+        adminUser,
+        isAdminAuthenticated,
+        adminLogin,
+        adminLogout
       }}
     >
       {children}
