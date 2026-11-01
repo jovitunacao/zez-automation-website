@@ -217,10 +217,18 @@ export async function deleteProductInSupabase(productId: string): Promise<{ succ
  * Ensures the complete quotation is confirmed in the database before returning success.
  * If line items fail, the parent quote is safely rolled back to prevent incomplete records.
  */
-export async function syncRfqToSupabase(rfq: QuotationRequest): Promise<{ success: boolean; error?: string }> {
+export async function syncRfqToSupabase(rfq: QuotationRequest): Promise<{ 
+  success: boolean; 
+  isDemoMode?: boolean; 
+  serverRfqId?: string;
+  error?: string 
+}> {
   if (!isSupabaseConfigured() || !supabase) {
-    // Local development/demo fallback
-    return { success: true };
+    // Return explicit demonstration mode simulation
+    return { 
+      success: true, 
+      isDemoMode: true 
+    };
   }
 
   if (!rfq.items || rfq.items.length === 0) {
@@ -228,106 +236,62 @@ export async function syncRfqToSupabase(rfq: QuotationRequest): Promise<{ succes
   }
 
   try {
-    // Attempt 1: Call atomic database RPC function if installed
+    // Map items to exact JSON payload schema expected by submit_quotation_request(payload JSONB)
     const itemsPayload = rfq.items.map(item => ({
-      product_id: item.productId,
+      product_id: item.productId || null,
       product_name: item.productName,
-      model: item.model,
-      brand: item.brand,
-      sku: item.sku,
-      main_image: item.mainImage,
-      quantity: item.quantity,
-      unit_price_php: item.unitPricePhp || null,
-      subtotal_php: item.subtotalPhp || null,
+      model: item.model || 'Standard Model',
+      brand: item.brand || 'Generic',
+      sku: item.sku || 'ZEZ-ITEM',
+      main_image: item.mainImage || null,
+      quantity: Math.max(1, Math.floor(item.quantity)),
+      unit_price_php: item.unitPricePhp !== undefined ? Number(item.unitPricePhp) : null,
+      subtotal_php: item.subtotalPhp !== undefined ? Number(item.subtotalPhp) : null,
       notes: item.notes || null
     }));
 
+    const rpcPayload = {
+      customer_full_name: rfq.customer.fullName,
+      customer_company_name: rfq.customer.companyName || null,
+      customer_email: rfq.customer.email,
+      customer_mobile_number: rfq.customer.mobileNumber,
+      delivery_city_province: rfq.customer.deliveryCityProvince || 'Metro Manila',
+      delivery_address: rfq.customer.deliveryAddress || null,
+      tin_number: rfq.customer.tinNumber || null,
+      customer_type: rfq.customer.customerType || 'Company',
+      preferred_contact_method: rfq.customer.preferredContactMethod || 'Email',
+      target_delivery_date: rfq.customer.targetDeliveryDate || null,
+      additional_requirements: rfq.customer.additionalRequirements || null,
+      items: itemsPayload
+    };
+
+    // Call atomic SECURITY DEFINER stored procedure on PostgreSQL
     const { data: rpcData, error: rpcError } = await supabase.rpc('submit_quotation_request', {
-      p_rfq_id: rfq.id,
-      p_customer_full_name: rfq.customer.fullName,
-      p_customer_company_name: rfq.customer.companyName || null,
-      p_customer_email: rfq.customer.email,
-      p_customer_mobile_number: rfq.customer.mobileNumber,
-      p_delivery_city_province: rfq.customer.deliveryCityProvince,
-      p_delivery_address: rfq.customer.deliveryAddress || null,
-      p_tin_number: rfq.customer.tinNumber || null,
-      p_customer_type: rfq.customer.customerType || 'Company',
-      p_preferred_contact_method: rfq.customer.preferredContactMethod || 'Email',
-      p_target_delivery_date: rfq.customer.targetDeliveryDate || null,
-      p_additional_requirements: rfq.customer.additionalRequirements || null,
-      p_total_estimated_php: rfq.totalEstimatedPhp || 0,
-      p_valid_until: rfq.validUntil || null,
-      p_items: itemsPayload
+      payload: rpcPayload
     });
 
-    if (!rpcError) {
-      console.info(`[ZEZ Supabase] Atomic RPC successfully saved RFQ ${rfq.id} with ${rfq.items.length} line items.`);
-      return { success: true };
+    if (rpcError) {
+      console.error('[ZEZ Supabase] Atomic submit_quotation_request RPC failed:', rpcError);
+      return { 
+        success: false, 
+        error: `Database quotation submission failed: ${rpcError.message}` 
+      };
     }
 
-    // Attempt 2: Fallback to direct two-step insert if RPC function is not yet migrated
-    console.info('[ZEZ Supabase] Falling back to standard direct inserts for RFQ:', rpcError.message);
+    const serverRfqId = rpcData?.rfq_id || rfq.id;
+    console.info(`[ZEZ Supabase] Atomic quotation successfully persisted with reference ID: ${serverRfqId}`);
 
-    // Step A: Insert Quotation Request Record with clean client-side defaults
-    const { error: rfqError } = await supabase
-      .from('quotation_requests')
-      .insert({
-        id: rfq.id,
-        status: 'New', // Enforce 'New' status on creation
-        customer_full_name: rfq.customer.fullName,
-        customer_company_name: rfq.customer.companyName || null,
-        customer_email: rfq.customer.email,
-        customer_mobile_number: rfq.customer.mobileNumber,
-        delivery_city_province: rfq.customer.deliveryCityProvince,
-        delivery_address: rfq.customer.deliveryAddress || null,
-        tin_number: rfq.customer.tinNumber || null,
-        customer_type: rfq.customer.customerType || 'Company',
-        preferred_contact_method: rfq.customer.preferredContactMethod || 'Email',
-        target_delivery_date: rfq.customer.targetDeliveryDate || null,
-        additional_requirements: rfq.customer.additionalRequirements || null,
-        total_estimated_php: rfq.totalEstimatedPhp || 0,
-        valid_until: rfq.validUntil || null,
-        admin_notes: null, // Public submissions cannot set admin notes
-        assigned_specialist: 'Marco Rivera (Enterprise Account Manager)',
-        is_demo: Boolean(rfq.isDemo)
-      });
-
-    if (rfqError) {
-      console.error('[ZEZ Supabase] Error inserting quotation_request:', rfqError);
-      return { success: false, error: `Failed to record quotation: ${rfqError.message}` };
-    }
-
-    // Step B: Insert all Quotation Items linked to the newly created RFQ
-    const lineItemsToInsert = rfq.items.map(item => ({
-      quotation_request_id: rfq.id,
-      product_id: item.productId,
-      product_name: item.productName,
-      model: item.model,
-      brand: item.brand,
-      sku: item.sku,
-      main_image: item.mainImage,
-      quantity: item.quantity,
-      unit_price_php: item.unitPricePhp || null,
-      subtotal_php: item.subtotalPhp || null,
-      notes: item.notes || null
-    }));
-
-    const { error: itemsError } = await supabase
-      .from('quotation_items')
-      .insert(lineItemsToInsert);
-
-    if (itemsError) {
-      console.error('[ZEZ Supabase] Error inserting quotation_items, rolling back request:', itemsError);
-      // Clean up orphaned parent record to guarantee all-or-nothing consistency
-      await supabase.from('quotation_requests').delete().eq('id', rfq.id);
-      return { success: false, error: `Failed to record quotation items: ${itemsError.message}` };
-    }
-
-    console.info(`[ZEZ Supabase] Successfully persisted complete RFQ ${rfq.id} to Supabase PostgreSQL.`);
-    return { success: true };
+    return { 
+      success: true, 
+      serverRfqId,
+      isDemoMode: false
+    };
   } catch (err: any) {
-    console.error('[ZEZ Supabase] Exception saving RFQ:', err);
-    return { success: false, error: err.message || 'Unexpected network or database failure' };
+    console.error('[ZEZ Supabase] Network exception during atomic RFQ submission:', err);
+    return { 
+      success: false, 
+      error: err.message || 'Unexpected network or database failure during RFQ transmission' 
+    };
   }
 }
 

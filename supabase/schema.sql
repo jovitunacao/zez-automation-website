@@ -247,6 +247,7 @@ ALTER TABLE public.customer_inquiries ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.site_settings ENABLE ROW LEVEL SECURITY;
 
 -- 11.1 Administrator Users Policy
+DROP POLICY IF EXISTS "Admins can view and manage admin users" ON public.administrator_users;
 CREATE POLICY "Admins can view and manage admin users" 
 ON public.administrator_users 
 FOR ALL 
@@ -256,12 +257,14 @@ WITH CHECK (public.is_admin());
 
 -- 11.2 Customer Profiles Policy
 -- Customers can view & edit their own profile; admins can view all profiles
+DROP POLICY IF EXISTS "Users view own profile" ON public.customer_profiles;
 CREATE POLICY "Users view own profile" 
 ON public.customer_profiles 
 FOR SELECT 
 TO authenticated 
 USING (auth.uid() = id OR public.is_admin());
 
+DROP POLICY IF EXISTS "Users update own profile" ON public.customer_profiles;
 CREATE POLICY "Users update own profile" 
 ON public.customer_profiles 
 FOR UPDATE 
@@ -269,6 +272,7 @@ TO authenticated
 USING (auth.uid() = id) 
 WITH CHECK (auth.uid() = id);
 
+DROP POLICY IF EXISTS "Users insert own profile" ON public.customer_profiles;
 CREATE POLICY "Users insert own profile" 
 ON public.customer_profiles 
 FOR INSERT 
@@ -277,27 +281,32 @@ WITH CHECK (auth.uid() = id);
 
 -- 11.3 Public Catalog (Categories, Brands, Products, Site Settings)
 -- Public read access for active published items
+DROP POLICY IF EXISTS "Public read published categories" ON public.categories;
 CREATE POLICY "Public read published categories" 
 ON public.categories 
 FOR SELECT 
 USING (true);
 
+DROP POLICY IF EXISTS "Public read published brands" ON public.brands;
 CREATE POLICY "Public read published brands" 
 ON public.brands 
 FOR SELECT 
 USING (true);
 
+DROP POLICY IF EXISTS "Public read published products" ON public.products;
 CREATE POLICY "Public read published products" 
 ON public.products 
 FOR SELECT 
 USING (is_published = true OR public.is_admin());
 
+DROP POLICY IF EXISTS "Public read site settings" ON public.site_settings;
 CREATE POLICY "Public read site settings" 
 ON public.site_settings 
 FOR SELECT 
 USING (true);
 
--- Product and Catalog mutations restricted to authenticated administrators
+-- Product and Catalog mutations restricted exclusively to authenticated administrators
+DROP POLICY IF EXISTS "Admins manage categories" ON public.categories;
 CREATE POLICY "Admins manage categories" 
 ON public.categories 
 FOR ALL 
@@ -305,6 +314,7 @@ TO authenticated
 USING (public.is_admin()) 
 WITH CHECK (public.is_admin());
 
+DROP POLICY IF EXISTS "Admins manage brands" ON public.brands;
 CREATE POLICY "Admins manage brands" 
 ON public.brands 
 FOR ALL 
@@ -312,6 +322,7 @@ TO authenticated
 USING (public.is_admin()) 
 WITH CHECK (public.is_admin());
 
+DROP POLICY IF EXISTS "Admins manage products" ON public.products;
 CREATE POLICY "Admins manage products" 
 ON public.products 
 FOR ALL 
@@ -319,6 +330,7 @@ TO authenticated
 USING (public.is_admin()) 
 WITH CHECK (public.is_admin());
 
+DROP POLICY IF EXISTS "Admins manage site settings" ON public.site_settings;
 CREATE POLICY "Admins manage site settings" 
 ON public.site_settings 
 FOR ALL 
@@ -327,13 +339,18 @@ USING (public.is_admin())
 WITH CHECK (public.is_admin());
 
 -- 11.4 Quotation Requests (RFQs) Security
--- Anyone (guests or signed-in procurement users) may submit an RFQ
-CREATE POLICY "Anyone can submit RFQ" 
+-- Direct table INSERT is strictly limited to authenticated administrators.
+-- Anonymous visitors and procurement customers MUST submit RFQs via submit_quotation_request().
+DROP POLICY IF EXISTS "Anyone can submit RFQ" ON public.quotation_requests;
+DROP POLICY IF EXISTS "Admins insert quotation requests" ON public.quotation_requests;
+CREATE POLICY "Admins insert quotation requests" 
 ON public.quotation_requests 
 FOR INSERT 
-WITH CHECK (true);
+TO authenticated 
+WITH CHECK (public.is_admin());
 
--- Customers can view only their own RFQs (matched by user_id or verified email); Admins view all
+-- Customers can view only their own RFQs (matched by user_id or verified JWT email); Admins view all
+DROP POLICY IF EXISTS "Customers view own RFQs or Admins view all" ON public.quotation_requests;
 CREATE POLICY "Customers view own RFQs or Admins view all" 
 ON public.quotation_requests 
 FOR SELECT 
@@ -344,6 +361,7 @@ USING (
 );
 
 -- Only authenticated administrators can edit quotation statuses, specialist assignment, or notes
+DROP POLICY IF EXISTS "Admins update RFQs" ON public.quotation_requests;
 CREATE POLICY "Admins update RFQs" 
 ON public.quotation_requests 
 FOR UPDATE 
@@ -351,6 +369,7 @@ TO authenticated
 USING (public.is_admin()) 
 WITH CHECK (public.is_admin());
 
+DROP POLICY IF EXISTS "Admins delete RFQs" ON public.quotation_requests;
 CREATE POLICY "Admins delete RFQs" 
 ON public.quotation_requests 
 FOR DELETE 
@@ -358,13 +377,19 @@ TO authenticated
 USING (public.is_admin());
 
 -- 11.5 Quotation Line Items Security
--- Items can be inserted with RFQ
-CREATE POLICY "Anyone can insert quotation items" 
+-- Direct table INSERT is strictly limited to authenticated administrators.
+-- Line items for public RFQs are inserted exclusively within submit_quotation_request().
+-- This prevents malicious actors from inserting orphaned items or corrupting unrelated RFQs.
+DROP POLICY IF EXISTS "Anyone can insert quotation items" ON public.quotation_items;
+DROP POLICY IF EXISTS "Admins insert quotation items" ON public.quotation_items;
+CREATE POLICY "Admins insert quotation items" 
 ON public.quotation_items 
 FOR INSERT 
-WITH CHECK (true);
+TO authenticated 
+WITH CHECK (public.is_admin());
 
--- Line items readable only if user has access to parent quotation request
+-- Line items readable only if user has verified access to the parent quotation request
+DROP POLICY IF EXISTS "Read quotation items if can read quotation request" ON public.quotation_items;
 CREATE POLICY "Read quotation items if can read quotation request" 
 ON public.quotation_items 
 FOR SELECT 
@@ -380,6 +405,7 @@ USING (
     )
 );
 
+DROP POLICY IF EXISTS "Admins manage quotation items" ON public.quotation_items;
 CREATE POLICY "Admins manage quotation items" 
 ON public.quotation_items 
 FOR ALL 
@@ -389,11 +415,13 @@ WITH CHECK (public.is_admin());
 
 -- 11.6 Customer Contact Inquiries Security
 -- Anyone can submit inquiry; only admins can view
+DROP POLICY IF EXISTS "Anyone can submit contact inquiry" ON public.customer_inquiries;
 CREATE POLICY "Anyone can submit contact inquiry" 
 ON public.customer_inquiries 
 FOR INSERT 
 WITH CHECK (true);
 
+DROP POLICY IF EXISTS "Admins view and manage contact inquiries" ON public.customer_inquiries;
 CREATE POLICY "Admins view and manage contact inquiries" 
 ON public.customer_inquiries 
 FOR ALL 
@@ -403,46 +431,74 @@ WITH CHECK (public.is_admin());
 
 -- ------------------------------------------------------------------------------
 -- 11.7 ATOMIC QUOTATION SUBMISSION STORED PROCEDURE
--- Ensures RFQ header and all equipment line items are saved in one single transaction.
--- If any line fails or validation is not met, the entire submission rolls back.
--- Prevents anonymous users from tampering with admin_notes or assigned_specialist.
+-- Validated SECURITY DEFINER function with strict payload validation.
+-- Enforces:
+--   1. Server-generated unique reference number (e.g. ZEZ-RFQ-2026-XXXXX)
+--   2. Verified user identity (auth.uid() if authenticated, NULL if guest)
+--   3. Quantity and format validations (no zero/negative quantities)
+--   4. Server-controlled administrative fields (status='New', admin_notes=NULL)
+--   5. Guaranteed atomic transaction (all-or-nothing rollback on failure)
 -- ------------------------------------------------------------------------------
-CREATE OR REPLACE FUNCTION public.submit_quotation_request(rfq_data JSONB)
+CREATE OR REPLACE FUNCTION public.submit_quotation_request(payload JSONB)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
-    new_rfq_id VARCHAR(100);
+    v_rfq_id VARCHAR(100);
+    v_user_id UUID;
+    v_total_calc NUMERIC(14, 2) := 0;
+    v_qty INTEGER;
+    v_unit_price NUMERIC(12, 2);
     item JSONB;
     total_items INTEGER := 0;
 BEGIN
-    -- 1. Validate required fields
-    IF rfq_data->>'id' IS NULL OR trim(rfq_data->>'id') = '' THEN
-        RAISE EXCEPTION 'Quotation Request Reference ID is required';
+    -- 1. Validate customer contact information
+    IF payload->>'customer_full_name' IS NULL OR length(trim(payload->>'customer_full_name')) < 2 THEN
+        RAISE EXCEPTION 'Customer full name must be at least 2 characters long';
     END IF;
 
-    IF rfq_data->>'customer_full_name' IS NULL OR trim(rfq_data->>'customer_full_name') = '' THEN
-        RAISE EXCEPTION 'Customer full name is required';
+    IF payload->>'customer_email' IS NULL OR trim(payload->>'customer_email') NOT LIKE '%@%.%' THEN
+        RAISE EXCEPTION 'A valid email address is required (e.g., procurement@company.ph)';
     END IF;
 
-    IF rfq_data->>'customer_email' IS NULL OR trim(rfq_data->>'customer_email') = '' THEN
-        RAISE EXCEPTION 'Customer email address is required';
+    IF payload->>'customer_mobile_number' IS NULL OR length(trim(payload->>'customer_mobile_number')) < 7 THEN
+        RAISE EXCEPTION 'A valid contact telephone or mobile number is required';
     END IF;
 
-    IF rfq_data->>'customer_mobile_number' IS NULL OR trim(rfq_data->>'customer_mobile_number') = '' THEN
-        RAISE EXCEPTION 'Customer mobile number is required';
-    END IF;
-
-    IF rfq_data->'items' IS NULL OR jsonb_array_length(rfq_data->'items') = 0 THEN
+    -- 2. Validate items array
+    IF payload->'items' IS NULL OR jsonb_typeof(payload->'items') <> 'array' OR jsonb_array_length(payload->'items') = 0 THEN
         RAISE EXCEPTION 'At least one equipment item is required to submit a quotation request';
     END IF;
 
-    new_rfq_id := rfq_data->>'id';
+    -- 3. Verify user identity securely from active session (cannot be spoofed from client payload)
+    v_user_id := auth.uid();
 
-    -- 2. Insert master quotation header with enforced defaults
-    -- Note: Admin-only fields (admin_notes, assigned_specialist) cannot be set by public callers
+    -- 4. Server-generate collision-resistant official reference number
+    v_rfq_id := 'ZEZ-RFQ-' || TO_CHAR(NOW(), 'YYYY') || '-' || LPAD(FLOOR(RANDOM() * 90000 + 10000)::TEXT, 5, '0');
+    WHILE EXISTS (SELECT 1 FROM public.quotation_requests WHERE id = v_rfq_id) LOOP
+        v_rfq_id := 'ZEZ-RFQ-' || TO_CHAR(NOW(), 'YYYY') || '-' || LPAD(FLOOR(RANDOM() * 90000 + 10000)::TEXT, 5, '0');
+    END LOOP;
+
+    -- 5. Pre-validate item quantities and compute total estimated value
+    FOR item IN SELECT * FROM jsonb_array_elements(payload->'items')
+    LOOP
+        v_qty := (item->>'quantity')::INTEGER;
+        IF v_qty IS NULL OR v_qty <= 0 THEN
+            RAISE EXCEPTION 'Invalid quantity for item "%". Quantity must be 1 or greater.', COALESCE(item->>'product_name', 'Equipment');
+        END IF;
+
+        IF item->>'product_name' IS NULL OR trim(item->>'product_name') = '' THEN
+            RAISE EXCEPTION 'Equipment product name is required for all line items';
+        END IF;
+
+        IF item->>'unit_price_php' IS NOT NULL AND trim(item->>'unit_price_php') <> '' THEN
+            v_total_calc := v_total_calc + ((item->>'unit_price_php')::NUMERIC * v_qty);
+        END IF;
+    END LOOP;
+
+    -- 6. Insert master quotation header with enforced server-controlled administrative defaults
     INSERT INTO public.quotation_requests (
         id,
         user_id,
@@ -460,42 +516,49 @@ BEGIN
         additional_requirements,
         total_estimated_php,
         is_demo,
+        admin_notes,
         assigned_specialist,
+        valid_until,
         created_at,
         updated_at
     ) VALUES (
-        new_rfq_id,
+        v_rfq_id,
+        v_user_id,
+        'New', -- Enforce initial status 'New'
+        trim(payload->>'customer_full_name'),
+        NULLIF(trim(payload->>'customer_company_name'), ''),
+        lower(trim(payload->>'customer_email')),
+        trim(payload->>'customer_mobile_number'),
+        COALESCE(NULLIF(trim(payload->>'delivery_city_province'), ''), 'Metro Manila'),
+        NULLIF(trim(payload->>'delivery_address'), ''),
+        NULLIF(trim(payload->>'tin_number'), ''),
+        COALESCE(NULLIF(trim(payload->>'customer_type'), ''), 'Company'),
+        COALESCE(NULLIF(trim(payload->>'preferred_contact_method'), ''), 'Email'),
         CASE 
-            WHEN rfq_data->>'user_id' IS NOT NULL AND rfq_data->>'user_id' <> '' 
-            THEN (rfq_data->>'user_id')::UUID 
+            WHEN payload->>'target_delivery_date' IS NOT NULL AND trim(payload->>'target_delivery_date') <> '' 
+            THEN (payload->>'target_delivery_date')::DATE 
             ELSE NULL 
         END,
-        'New', -- Always enforce initial status 'New'
-        trim(rfq_data->>'customer_full_name'),
-        NULLIF(trim(rfq_data->>'customer_company_name'), ''),
-        lower(trim(rfq_data->>'customer_email')),
-        trim(rfq_data->>'customer_mobile_number'),
-        COALESCE(NULLIF(trim(rfq_data->>'delivery_city_province'), ''), 'Metro Manila'),
-        NULLIF(trim(rfq_data->>'delivery_address'), ''),
-        NULLIF(trim(rfq_data->>'tin_number'), ''),
-        COALESCE(NULLIF(trim(rfq_data->>'customer_type'), ''), 'Company'),
-        COALESCE(NULLIF(trim(rfq_data->>'preferred_contact_method'), ''), 'Email'),
-        CASE 
-            WHEN rfq_data->>'target_delivery_date' IS NOT NULL AND rfq_data->>'target_delivery_date' <> '' 
-            THEN (rfq_data->>'target_delivery_date')::DATE 
-            ELSE NULL 
-        END,
-        NULLIF(trim(rfq_data->>'additional_requirements'), ''),
-        COALESCE((rfq_data->>'total_estimated_php')::NUMERIC, 0),
-        COALESCE((rfq_data->>'is_demo')::BOOLEAN, false),
+        NULLIF(trim(payload->>'additional_requirements'), ''),
+        v_total_calc,
+        false, -- Server enforces is_demo = false for real database submissions
+        NULL, -- Public callers cannot populate administrator notes
         'Marco Rivera (Enterprise Account Manager)',
+        (CURRENT_DATE + INTERVAL '30 days')::DATE,
         NOW(),
         NOW()
     );
 
-    -- 3. Insert all line items atomically
-    FOR item IN SELECT * FROM jsonb_array_elements(rfq_data->'items')
+    -- 7. Insert all equipment line items atomically
+    FOR item IN SELECT * FROM jsonb_array_elements(payload->'items')
     LOOP
+        v_qty := (item->>'quantity')::INTEGER;
+        v_unit_price := CASE 
+            WHEN item->>'unit_price_php' IS NOT NULL AND trim(item->>'unit_price_php') <> '' 
+            THEN (item->>'unit_price_php')::NUMERIC 
+            ELSE NULL 
+        END;
+
         INSERT INTO public.quotation_items (
             quotation_request_id,
             product_id,
@@ -509,16 +572,16 @@ BEGIN
             subtotal_php,
             notes
         ) VALUES (
-            new_rfq_id,
+            v_rfq_id,
             NULLIF(trim(item->>'product_id'), ''),
-            COALESCE(item->>'product_name', 'ICT Equipment'),
-            COALESCE(item->>'model', 'Standard Model'),
-            COALESCE(item->>'brand', 'Generic'),
-            COALESCE(item->>'sku', 'ZEZ-ITEM'),
-            item->>'main_image',
-            GREATEST(COALESCE((item->>'quantity')::INTEGER, 1), 1),
-            (item->>'unit_price_php')::NUMERIC,
-            (item->>'subtotal_php')::NUMERIC,
+            trim(item->>'product_name'),
+            COALESCE(NULLIF(trim(item->>'model'), ''), 'Standard Model'),
+            COALESCE(NULLIF(trim(item->>'brand'), ''), 'Generic'),
+            COALESCE(NULLIF(trim(item->>'sku'), ''), 'ZEZ-ITEM'),
+            NULLIF(trim(item->>'main_image'), ''),
+            v_qty,
+            v_unit_price,
+            CASE WHEN v_unit_price IS NOT NULL THEN (v_unit_price * v_qty) ELSE NULL END,
             NULLIF(trim(item->>'notes'), '')
         );
         total_items := total_items + 1;
@@ -526,13 +589,16 @@ BEGIN
 
     RETURN jsonb_build_object(
         'success', true,
-        'rfq_id', new_rfq_id,
-        'items_count', total_items
+        'rfq_id', v_rfq_id,
+        'items_count', total_items,
+        'total_estimated_php', v_total_calc,
+        'created_at', NOW()
     );
 END;
 $$;
 
--- Grant execution permission to anonymous and authenticated users for quotation submissions
+-- Secure minimal permissions for submit_quotation_request RPC
+REVOKE ALL ON FUNCTION public.submit_quotation_request(JSONB) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.submit_quotation_request(JSONB) TO anon, authenticated, service_role;
 
 -- ------------------------------------------------------------------------------
@@ -548,17 +614,20 @@ VALUES ('product-datasheets', 'product-datasheets', true)
 ON CONFLICT (id) DO UPDATE SET public = true;
 
 -- Storage RLS: Public read access
+DROP POLICY IF EXISTS "Public read product images" ON storage.objects;
 CREATE POLICY "Public read product images" 
 ON storage.objects 
 FOR SELECT 
 USING (bucket_id = 'product-images');
 
+DROP POLICY IF EXISTS "Public read product datasheets" ON storage.objects;
 CREATE POLICY "Public read product datasheets" 
 ON storage.objects 
 FOR SELECT 
 USING (bucket_id = 'product-datasheets');
 
 -- Storage RLS: Upload & delete restricted to authenticated administrators
+DROP POLICY IF EXISTS "Admins manage product images storage" ON storage.objects;
 CREATE POLICY "Admins manage product images storage" 
 ON storage.objects 
 FOR ALL 
@@ -566,6 +635,7 @@ TO authenticated
 USING (bucket_id = 'product-images' AND public.is_admin()) 
 WITH CHECK (bucket_id = 'product-images' AND public.is_admin());
 
+DROP POLICY IF EXISTS "Admins manage product datasheets storage" ON storage.objects;
 CREATE POLICY "Admins manage product datasheets storage" 
 ON storage.objects 
 FOR ALL 

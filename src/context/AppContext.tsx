@@ -60,9 +60,9 @@ interface AppContextType {
   brands: Brand[];
   productsLoading: boolean;
   refreshProducts: () => Promise<void>;
-  addProduct: (product: Omit<Product, 'id'>) => Promise<void>;
-  updateProduct: (product: Product) => Promise<void>;
-  deleteProduct: (id: string) => Promise<void>;
+  addProduct: (product: Omit<Product, 'id'>) => Promise<{ success: boolean; error?: string }>;
+  updateProduct: (product: Product) => Promise<{ success: boolean; error?: string }>;
+  deleteProduct: (id: string) => Promise<{ success: boolean; error?: string }>;
 
   // Search & Filter
   filters: FilterState;
@@ -264,7 +264,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isQuoteDrawerOpen, setIsQuoteDrawerOpen] = useState(false);
 
   // RFQ Requests List
+  // In production (Supabase configured), strictly display database-confirmed records.
+  // Fictional mockup RFQs are only used when running in unconfigured local demo mode.
   const [rfqRequests, setRfqRequests] = useState<QuotationRequest[]>(() => {
+    if (isSupabaseConfigured()) {
+      return [];
+    }
     try {
       const stored = localStorage.getItem('zez_rfqs');
       if (stored) return JSON.parse(stored);
@@ -281,22 +286,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isCompareModalOpen, setIsCompareModalOpen] = useState(false);
 
   // Customer Profile
+  // In production, no fabricated customer details or company addresses are presented as real.
   const [currentCustomer, setCurrentCustomer] = useState<RfqCustomerInfo | null>(() => {
+    if (isSupabaseConfigured()) {
+      return null;
+    }
     try {
       const stored = localStorage.getItem('zez_current_customer');
       if (stored) return JSON.parse(stored);
     } catch (e) {
       console.error(e);
     }
-    return {
-      fullName: 'Engr. Jayson Morales',
-      companyName: 'Apex Data Logistics Inc.',
-      email: 'j.morales@apexlogistics.ph',
-      mobileNumber: '+63 917 554 1120',
-      deliveryCityProvince: 'Taguig City, Metro Manila',
-      customerType: 'Company',
-      preferredContactMethod: 'Email'
-    };
+    return null;
   });
 
   // Filters
@@ -529,16 +530,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       validUntil: validUntilStr,
       adminNotes: undefined, // Enforce no pre-set admin notes from client
       assignedSpecialist: 'Marco Rivera (Enterprise Account Manager)',
-      isDemo: false
+      isDemo: !isSupabaseConfigured()
     };
 
-    // Synchronize to Supabase database and await confirmation
+    // Synchronize atomically to Supabase database and await confirmation
     const syncRes = await syncRfqToSupabase(newRfq);
     if (!syncRes.success) {
+      // PRESERVE CART: do not clear items if database persistence failed
       return { 
         success: false, 
         error: syncRes.error || 'Failed to record complete quotation in the database. Please try again.' 
       };
+    }
+
+    // Apply official server-generated reference number from PostgreSQL function
+    if (syncRes.serverRfqId) {
+      newRfq.id = syncRes.serverRfqId;
+    }
+    if (syncRes.isDemoMode) {
+      newRfq.isDemo = true;
     }
 
     setRfqRequests(prev => [newRfq, ...prev]);
@@ -567,31 +577,50 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Product CRUD with Cloud Database Persistence
-  const addProduct = async (newProd: Omit<Product, 'id'>) => {
+  // Product CRUD with Cloud Database Persistence (Fail-Fast: only update state if DB operation succeeds)
+  const addProduct = async (newProd: Omit<Product, 'id'>): Promise<{ success: boolean; error?: string }> => {
     const id = `prod-${Date.now()}`;
-    const product: Product = { ...newProd, id, isDemo: false };
+    const product: Product = { ...newProd, id, isDemo: !isSupabaseConfigured() };
+
+    if (isSupabaseConfigured()) {
+      const res = await createProductInSupabase(product);
+      if (!res.success) {
+        console.error('[ZEZ Supabase] Product creation failed:', res.error);
+        return { success: false, error: res.error || 'Failed to persist product to database.' };
+      }
+    }
+
+    // Only update local state if database operation succeeded
     setProducts(prev => [product, ...prev]);
-
-    if (isSupabaseConfigured()) {
-      await createProductInSupabase(product);
-    }
+    return { success: true };
   };
 
-  const updateProduct = async (updated: Product) => {
+  const updateProduct = async (updated: Product): Promise<{ success: boolean; error?: string }> => {
+    if (isSupabaseConfigured()) {
+      const res = await updateProductInSupabase(updated);
+      if (!res.success) {
+        console.error('[ZEZ Supabase] Product update failed:', res.error);
+        return { success: false, error: res.error || 'Failed to update product in database.' };
+      }
+    }
+
+    // Only update local state if database operation succeeded
     setProducts(prev => prev.map(p => (p.id === updated.id ? updated : p)));
-
-    if (isSupabaseConfigured()) {
-      await updateProductInSupabase(updated);
-    }
+    return { success: true };
   };
 
-  const deleteProduct = async (id: string) => {
-    setProducts(prev => prev.filter(p => p.id !== id));
-
+  const deleteProduct = async (id: string): Promise<{ success: boolean; error?: string }> => {
     if (isSupabaseConfigured()) {
-      await deleteProductInSupabase(id);
+      const res = await deleteProductInSupabase(id);
+      if (!res.success) {
+        console.error('[ZEZ Supabase] Product deletion failed:', res.error);
+        return { success: false, error: res.error || 'Failed to delete product from database.' };
+      }
     }
+
+    // Only update local state if database operation succeeded
+    setProducts(prev => prev.filter(p => p.id !== id));
+    return { success: true };
   };
 
   // Admin Auth Handlers
@@ -603,7 +632,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // Load live RFQs from Supabase
       const dbRfqs = await fetchAdminRfqsFromSupabase();
-      if (dbRfqs && dbRfqs.length > 0) {
+      if (dbRfqs !== null) {
         setRfqRequests(dbRfqs);
       }
       return { success: true };

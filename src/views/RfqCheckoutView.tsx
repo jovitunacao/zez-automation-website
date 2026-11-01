@@ -147,6 +147,18 @@ export const RfqCheckoutView: React.FC = () => {
             </div>
           </div>
 
+          {submittedRfq.isDemo && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3.5 text-xs text-amber-800 text-left max-w-md mx-auto flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">Demonstration Notice:</span>
+                <p className="mt-0.5 text-[11px] text-amber-700">
+                  This transaction was simulated in Local Demonstration Mode. Supabase environment variables are not active, so this quotation was recorded locally and not dispatched to remote production servers.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Action CTAs */}
           <div className="flex flex-wrap items-center justify-center gap-3 pt-4">
             <button
