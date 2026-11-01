@@ -41,6 +41,8 @@ export interface ProductSpecification {
   value: string;
 }
 
+export type ProductImageStatus = 'supplier-provided' | 'manufacturer-matched' | 'illustrative';
+
 export interface Product {
   id: string;
   sku: string;
@@ -66,6 +68,8 @@ export interface Product {
   datasheetUrl?: string;
   datasheetFileName?: string;
   isDemo?: boolean;
+  imageStatus?: ProductImageStatus;
+  salesUnit?: string;
 }
 
 export interface QuotationCartItem {

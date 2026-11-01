@@ -9,7 +9,7 @@ import {
   SiteSettings, 
   FilterState 
 } from '../types';
-import { SAMPLE_PRODUCTS } from '../data/sampleProducts';
+import { CONSIGNMENT_PRODUCTS } from '../data/consignmentProducts';
 import { CATEGORIES } from '../data/categories';
 import { BRANDS } from '../data/brands';
 import { 
@@ -239,11 +239,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [products, setProducts] = useState<Product[]>(() => {
     try {
       const stored = localStorage.getItem('zez_products');
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        // Only keep stored items if they do not contain legacy fictitious mock products
+        if (Array.isArray(parsed) && parsed.length > 0 && !parsed.some(p => p.id?.startsWith('prod-'))) {
+          return parsed;
+        }
+      }
     } catch (e) {
       console.error(e);
     }
-    return SAMPLE_PRODUCTS.map(p => ({ ...p, isDemo: true }));
+    return CONSIGNMENT_PRODUCTS;
   });
 
   const [productsLoading, setProductsLoading] = useState<boolean>(false);

@@ -31,6 +31,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { Product, RfqStatus, QuotationRequest, StockStatus } from '../types';
 import { isSupabaseConfigured } from '../lib/supabase';
+import { getDisplayBrand, getProductSalesUnit } from '../utils/productUtils';
 
 export const AdminDashboardView: React.FC = () => {
   const { 
@@ -773,7 +774,7 @@ export const AdminDashboardView: React.FC = () => {
                           </div>
                         </div>
                       </td>
-                      <td className="py-3 px-3 font-semibold text-[#B5121B]">{prod.brand}</td>
+                      <td className="py-3 px-3 font-semibold text-[#B5121B]">{getDisplayBrand(prod.brand)}</td>
                       <td className="py-3 px-3 text-gray-600">{prod.categoryName}</td>
                       <td className="py-3 px-3">
                         <div className="font-mono text-[11px] font-semibold text-gray-800">{prod.sku}</div>
@@ -791,7 +792,14 @@ export const AdminDashboardView: React.FC = () => {
                         </div>
                       </td>
                       <td className="py-3 px-3 text-right font-mono font-bold text-gray-900">
-                        {prod.pricePhp ? `₱${prod.pricePhp.toLocaleString()}` : 'Project Pricing'}
+                        {prod.pricePhp ? (
+                          <>
+                            ₱{prod.pricePhp.toLocaleString()}
+                            {getProductSalesUnit(prod) && <span className="text-[10px] text-gray-400 font-sans ml-1">/ {getProductSalesUnit(prod)}</span>}
+                          </>
+                        ) : (
+                          'Project Pricing'
+                        )}
                       </td>
                       <td className="py-3 px-3 text-center">
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">

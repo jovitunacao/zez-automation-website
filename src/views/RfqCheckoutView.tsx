@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { CustomerType, ContactMethod, RfqCustomerInfo, QuotationRequest } from '../types';
+import { getDisplayBrand, getProductSalesUnit } from '../utils/productUtils';
 
 export const RfqCheckoutView: React.FC = () => {
   const { 
@@ -424,7 +425,7 @@ export const RfqCheckoutView: React.FC = () => {
                   <div className="flex items-start justify-between gap-1">
                     <div>
                       <span className="text-[10px] font-bold text-[#B5121B] uppercase">
-                        {item.product.brand}
+                        {getDisplayBrand(item.product.brand)}
                       </span>
                       <h4 className="font-bold text-gray-900 line-clamp-1">
                         {item.product.name}
@@ -462,9 +463,14 @@ export const RfqCheckoutView: React.FC = () => {
 
                     <div className="text-right">
                       {item.product.pricePhp ? (
-                        <span className="font-bold text-gray-900">
-                          ₱{(item.product.pricePhp * item.quantity).toLocaleString()}
-                        </span>
+                        <div>
+                          <span className="font-bold text-gray-900 block">
+                            ₱{(item.product.pricePhp * item.quantity).toLocaleString()}
+                          </span>
+                          <span className="text-[10px] text-gray-400">
+                            ₱{item.product.pricePhp.toLocaleString()}{getProductSalesUnit(item.product) ? ` / ${getProductSalesUnit(item.product)}` : ''}
+                          </span>
+                        </div>
                       ) : (
                         <span className="text-gray-500">Project Pricing</span>
                       )}

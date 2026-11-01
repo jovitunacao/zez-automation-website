@@ -11,6 +11,7 @@ import {
   Building2
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { getDisplayBrand, getProductSalesUnit } from '../../utils/productUtils';
 
 export const QuotationDrawer: React.FC = () => {
   const { 
@@ -116,7 +117,7 @@ export const QuotationDrawer: React.FC = () => {
                         <div className="flex items-start justify-between gap-1">
                           <div>
                             <span className="text-[10px] font-bold text-[#B5121B] uppercase">
-                              {item.product.brand}
+                              {getDisplayBrand(item.product.brand)}
                             </span>
                             <h5 className="text-xs font-bold text-[#292F36] line-clamp-2 leading-tight">
                               {item.product.name}
@@ -165,7 +166,7 @@ export const QuotationDrawer: React.FC = () => {
                                   ₱{(item.product.pricePhp * item.quantity).toLocaleString()}
                                 </span>
                                 <div className="text-[10px] text-gray-400">
-                                  @ ₱{item.product.pricePhp.toLocaleString()}/unit
+                                  @ ₱{item.product.pricePhp.toLocaleString()}/{getProductSalesUnit(item.product)}
                                 </div>
                               </div>
                             ) : (

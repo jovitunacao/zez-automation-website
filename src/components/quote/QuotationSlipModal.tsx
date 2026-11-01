@@ -15,6 +15,7 @@ import {
 import { QuotationRequest } from '../../types';
 import { Logo } from '../brand/Logo';
 import { useApp } from '../../context/AppContext';
+import { getDisplayBrand } from '../../utils/productUtils';
 
 interface QuotationSlipModalProps {
   rfq: QuotationRequest | null;
@@ -158,7 +159,7 @@ export const QuotationSlipModal: React.FC<QuotationSlipModalProps> = ({ rfq, onC
                   <tr key={index} className="hover:bg-gray-50/50">
                     <td className="py-3 px-3 font-mono text-gray-500">{index + 1}</td>
                     <td className="py-3 px-3">
-                      <span className="font-bold text-[#B5121B] block">{item.brand}</span>
+                      <span className="font-bold text-[#B5121B] block">{getDisplayBrand(item.brand)}</span>
                       <span className="font-mono text-[11px] text-gray-600">{item.model}</span>
                     </td>
                     <td className="py-3 px-3">

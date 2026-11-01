@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Product } from '../types';
+import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata } from '../utils/productUtils';
 
 export const HomeView: React.FC = () => {
   const { 
@@ -34,13 +35,15 @@ export const HomeView: React.FC = () => {
 
   const [featuredTab, setFeaturedTab] = useState<string>('all');
 
-  const filteredFeatured = products
+  const featuredCandidateList = products.filter(p => p.isFeatured).length > 0
+    ? products.filter(p => p.isFeatured)
+    : products;
+
+  const filteredFeatured = featuredCandidateList
     .filter((p) => {
-      if (!p.isFeatured) return false;
       if (featuredTab === 'all') return true;
-      if (featuredTab === 'networking') return p.categoryId === 'networking-equipment' || p.categoryId === 'wireless-connectivity';
-      if (featuredTab === 'cctv') return p.categoryId === 'cctv-surveillance';
-      if (featuredTab === 'servers') return p.categoryId === 'servers-storage';
+      if (featuredTab === 'cabling') return p.categoryId === 'structured-cabling';
+      if (featuredTab === 'racks') return p.categoryId === 'racks-cabinets';
       if (featuredTab === 'power') return p.categoryId === 'ups-power-solutions';
       return true;
     })
@@ -221,37 +224,27 @@ export const HomeView: React.FC = () => {
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              All Featured
+              All Catalog ({products.length})
             </button>
             <button
-              onClick={() => setFeaturedTab('networking')}
+              onClick={() => setFeaturedTab('cabling')}
               className={`px-3 py-1.5 rounded-md transition-all ${
-                featuredTab === 'networking'
+                featuredTab === 'cabling'
                   ? 'bg-white text-gray-900 shadow-xs'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              Networking
+              Structured Cabling
             </button>
             <button
-              onClick={() => setFeaturedTab('cctv')}
+              onClick={() => setFeaturedTab('racks')}
               className={`px-3 py-1.5 rounded-md transition-all ${
-                featuredTab === 'cctv'
+                featuredTab === 'racks'
                   ? 'bg-white text-gray-900 shadow-xs'
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              CCTV Surveillance
-            </button>
-            <button
-              onClick={() => setFeaturedTab('servers')}
-              className={`px-3 py-1.5 rounded-md transition-all ${
-                featuredTab === 'servers'
-                  ? 'bg-white text-gray-900 shadow-xs'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
-            >
-              Servers & Storage
+              Racks & Cabinets
             </button>
             <button
               onClick={() => setFeaturedTab('power')}
@@ -261,112 +254,123 @@ export const HomeView: React.FC = () => {
                   : 'text-gray-600 hover:text-gray-900'
               }`}
             >
-              UPS Power
+              UPS & Power
             </button>
           </div>
         </div>
 
         {/* Product Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {filteredFeatured.map((product) => (
-            <div
-              key={product.id}
-              className="bg-white rounded-xl border border-gray-200 hover:border-gray-300 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between overflow-hidden group"
-            >
-              {/* Product Visual */}
-              <div className="relative p-4 bg-gray-50/50 border-b border-gray-100 flex items-center justify-center h-48">
-                <img
-                  src={product.mainImage}
-                  alt={product.name}
-                  className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
-                />
-                {/* Stock indicator badge */}
-                <div className="absolute top-3 left-3">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                    {product.stockStatus}
-                  </span>
-                </div>
-
-                {/* Compare action button */}
-                <button
-                  onClick={() => addToCompare(product)}
-                  className="absolute top-3 right-3 p-1.5 bg-white rounded-md shadow-xs text-gray-400 hover:text-[#B5121B] border border-gray-200"
-                  title="Compare specs"
-                >
-                  <Scale className="w-3.5 h-3.5" />
-                </button>
-              </div>
-
-              {/* Product Information */}
-              <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-[11px] text-[#5E646D]">
-                    <span className="font-bold text-[#B5121B] uppercase tracking-wide">
-                      {product.brand}
+          {filteredFeatured.map((product) => {
+            const imgMeta = getProductImageMetadata(product);
+            const salesUnit = getProductSalesUnit(product);
+            const displayBrand = getDisplayBrand(product.brand);
+            return (
+              <div
+                key={product.id}
+                className="bg-white rounded-xl border border-gray-200 hover:border-gray-300 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between overflow-hidden group"
+              >
+                {/* Product Visual */}
+                <div className="relative p-4 bg-gray-50/50 border-b border-gray-100 flex items-center justify-center h-48">
+                  <img
+                    src={product.mainImage}
+                    alt={product.name}
+                    className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
+                  />
+                  {/* Stock indicator badge & Image status */}
+                  <div className="absolute top-3 left-3 flex flex-col gap-1 items-start z-10">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 shadow-2xs">
+                      {product.stockStatus}
                     </span>
-                    <span className="font-mono">{product.sku}</span>
+                    <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border shadow-2xs ${imgMeta.badgeColor}`}>
+                      {imgMeta.shortLabel}
+                    </span>
                   </div>
 
-                  <h3
-                    onClick={() => navigateToProduct(product.id)}
-                    className="font-bold text-sm text-[#292F36] hover:text-[#B5121B] cursor-pointer line-clamp-2 leading-tight transition-colors"
+                  {/* Compare action button */}
+                  <button
+                    onClick={() => addToCompare(product)}
+                    className="absolute top-3 right-3 p-1.5 bg-white rounded-md shadow-xs text-gray-400 hover:text-[#B5121B] border border-gray-200"
+                    title="Compare specs"
                   >
-                    {product.name}
-                  </h3>
-
-                  <p className="text-xs text-gray-500 line-clamp-2 pt-0.5">
-                    {product.shortDescription}
-                  </p>
+                    <Scale className="w-3.5 h-3.5" />
+                  </button>
                 </div>
 
-                {/* Key Specs Pills (unboxed clean style) */}
-                <div className="py-2 border-y border-gray-100 text-[11px] text-gray-600 space-y-1">
-                  {product.keySpecs.slice(0, 2).map((spec, idx) => (
-                    <div key={idx} className="flex items-center gap-1.5 truncate">
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#B5121B] shrink-0" />
-                      <span className="truncate">{spec}</span>
+                {/* Product Information */}
+                <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] text-[#5E646D]">
+                      <span className="font-bold text-[#B5121B] uppercase tracking-wide">
+                        {displayBrand}
+                      </span>
+                      <span className="font-mono">{product.sku}</span>
                     </div>
-                  ))}
-                </div>
 
-                {/* Price & Actions */}
-                <div className="space-y-3 pt-1">
-                  <div className="flex items-baseline justify-between">
-                    <div>
-                      <div className="text-[10px] text-gray-400 uppercase tracking-wide">
-                        Reference Price
-                      </div>
-                      <div className="text-base font-extrabold text-[#292F36]">
-                        {product.pricePhp ? (
-                          `₱${product.pricePhp.toLocaleString()}`
-                        ) : (
-                          <span className="text-xs text-gray-500">Call for Price</span>
-                        )}
-                      </div>
-                    </div>
-                    <span className="text-[10px] text-gray-400 italic">excl. VAT</span>
+                    <h3
+                      onClick={() => navigateToProduct(product.id)}
+                      className="font-bold text-sm text-[#292F36] hover:text-[#B5121B] cursor-pointer line-clamp-2 leading-tight transition-colors"
+                    >
+                      {product.name}
+                    </h3>
+
+                    <p className="text-xs text-gray-500 line-clamp-2 pt-0.5">
+                      {product.shortDescription}
+                    </p>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      onClick={() => navigateToProduct(product.id)}
-                      className="w-full py-2 px-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center gap-1 transition-colors"
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                      <span>Details</span>
-                    </button>
-                    <button
-                      onClick={() => addToQuoteCart(product, 1)}
-                      className="w-full py-2 px-2 text-xs font-bold text-white bg-[#B5121B] hover:bg-[#8F1018] rounded-lg flex items-center justify-center gap-1 transition-colors shadow-xs"
-                    >
-                      <ShoppingCart className="w-3.5 h-3.5" />
-                      <span>Add to Quote</span>
-                    </button>
+                  {/* Key Specs Pills */}
+                  <div className="py-2 border-y border-gray-100 text-[11px] text-gray-600 space-y-1">
+                    {product.keySpecs.slice(0, 2).map((spec, idx) => (
+                      <div key={idx} className="flex items-center gap-1.5 truncate">
+                        <span className="w-1.5 h-1.5 rounded-full bg-[#B5121B] shrink-0" />
+                        <span className="truncate">{spec}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Price & Actions */}
+                  <div className="space-y-3 pt-1">
+                    <div className="flex items-baseline justify-between">
+                      <div>
+                        <div className="text-[10px] text-gray-400 uppercase tracking-wide">
+                          SRP Reference
+                        </div>
+                        <div className="text-base font-extrabold text-[#292F36]">
+                          {product.pricePhp ? (
+                            <>
+                              ₱{product.pricePhp.toLocaleString()}
+                              {salesUnit && <span className="text-xs font-normal text-gray-500 ml-1">/ {salesUnit}</span>}
+                            </>
+                          ) : (
+                            <span className="text-xs text-gray-500">Contact for Quote</span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-[10px] text-gray-400 italic">Net of VAT</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() => navigateToProduct(product.id)}
+                        className="w-full py-2 px-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center gap-1 transition-colors"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Details</span>
+                      </button>
+                      <button
+                        onClick={() => addToQuoteCart(product, 1)}
+                        className="w-full py-2 px-2 text-xs font-bold text-white bg-[#B5121B] hover:bg-[#8F1018] rounded-lg flex items-center justify-center gap-1 transition-colors shadow-xs"
+                      >
+                        <ShoppingCart className="w-3.5 h-3.5" />
+                        <span>Add to Quote</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
         <div className="text-center mt-10">
@@ -374,7 +378,7 @@ export const HomeView: React.FC = () => {
             onClick={() => setActiveView('shop')}
             className="px-6 py-3 bg-[#292F36] hover:bg-black text-white text-xs font-bold rounded-lg transition-colors inline-flex items-center gap-2"
           >
-            <span>Explore All 26+ Demonstration Products</span>
+            <span>Explore All {products.length} Products</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

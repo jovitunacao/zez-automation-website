@@ -44,7 +44,7 @@ export const CategoriesView: React.FC = () => {
                     <h3 className="font-bold text-base leading-tight">{cat.name}</h3>
                   </div>
                   <span className="absolute top-3 right-3 bg-white/90 text-gray-900 text-[10px] font-bold px-2 py-0.5 rounded shadow-xs">
-                    {categoryProducts.length} Demo Items
+                    {categoryProducts.length > 0 ? `${categoryProducts.length} Items Available` : `${cat.subcategories.length} Subcategories`}
                   </span>
                 </div>
 

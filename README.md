@@ -180,16 +180,23 @@ The project includes a ready-to-run database schema in `supabase/schema.sql`.
    - `customer_inquiries` (contact form messages)
    - `site_settings` (configurable hotline, address, & announcement banners)
    - Performance indexes on SKUs, brands, categories, and timestamps
-   - **Row Level Security (RLS)** policies allowing public catalog browsing and authenticated/public RFQ submissions.
-5. In your Supabase Dashboard, go to **Project Settings** → **API**.
-6. Copy the **Project URL** and the **anon / public** key.
-7. Paste them into your `.env` file or Vercel Environment Variables:
+   - **Row Level Security (RLS)** policies allowing public catalog browsing and atomic `submit_quotation_request` RPC.
+
+5. **(Optional) Seed 46 Actual Consignment Products**:
+   - After executing `schema.sql`, open `supabase/consignment_seed.sql`.
+   - Run the script to populate the 46 official catalog products (cabling, server cabinets, rack PDUs, wire mesh).
+   - The script is idempotent using `ON CONFLICT (sku) DO UPDATE`, completely safe against duplicate SKUs.
+   - Strictly contains public Suggested Retail Prices (SRP) in PHP net of VAT; supplier costs are excluded.
+
+6. In your Supabase Dashboard, go to **Project Settings** → **API**.
+7. Copy the **Project URL** and the **anon / public** key.
+8. Paste them into your `.env` file or Vercel Environment Variables:
    ```env
    VITE_SUPABASE_URL="https://your-project.supabase.co"
    VITE_SUPABASE_ANON_KEY="your-anon-key"
    ```
 
-*Note: If Supabase is not configured, the website automatically falls back to interactive LocalStorage mode so all features remain functional during demonstration.*
+*Note: If Supabase is not yet configured or seeded, the application seamlessly falls back to the embedded 46 consignment products in `src/data/consignmentProducts.ts` with local RFQ cart persistence.*
 
 ---
 

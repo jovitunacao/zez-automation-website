@@ -1,0 +1,3 @@
+46 products. Image assets from the provided workbook are stored under public/catalog/.
+Products without matched supplier image use representative category imagery and should be replaced by model-verified photos before launch.
+Public catalog excludes supplier purchase cost, consignment total, and quantity on hand. SRP is from column G.

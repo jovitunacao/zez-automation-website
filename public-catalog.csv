@@ -1,0 +1,47 @@
+SKU,Description,Category,SRP_PHP,Sales_Unit,Image_Status,Image_Source
+CLA04-UC5E-7035,"CAT 5E 4PR UTP Lan Cable, Solid, Gray 305m/reel",COPPER CABLES,6500,Rolls,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+CLA04-UC6-5015,"CAT6 UTP solid cable, 24AWG, 305M, blue(RAL5015)",COPPER CABLES,8500,Rolls,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+FCS11-2-F-LSZH,"Single Mode indoor Drop Cable 2 Core, (3000m/roll)",FIBER CABLES,25,meters,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+OUS01,"US Style Face Plate, 1 Port Non Shuttered, white",FACEPLATES,40,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+OUS02,"US Style Face Plate, 2 Ports Non Shuttered, white",FACEPLATES,40,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+TSDI-2PBOX-U,2 ports wall mount box (can accept 2ports simplex SC or 2ports LC duplex),FACEPLATES,45,pcs,supplier-provided,/catalog/tsdi-2pbox-u.jpg
+JKA09-UC5E-A,CAT5E UTP Keystone Mod. Jack BLACK 180°,MODULAR JACK CAT5E,95,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+JKA09-UC5E-B,CAT5E UTP Keystone Mod. Jack BLUE 180°,MODULAR JACK CAT5E,95,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+JKA09-UC6,"CAT6 UTP Keystone Jack, white, 180 degrees",MODULAR JACK CAT6,110,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+JKA09-UC6-A,"CAT6 UTP Keystone Jack, black, 180 degrees",MODULAR JACK CAT6,110,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+PNA24-KJ,Empty 24 Ports Patch Panel,PATCH PANEL,1100,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+PNA24-UC6,"CAT6 24 Ports Patch Panel, Jack Style (loaded)",PATCH PANEL,3950,Units,manufacturer-matched,https://www.linkbasic.us/linkbasic/2021/08/18/pna24-uc6.jpg
+CAA01-UC5E-1-B,"CAT5E Patch Cord 1 meter, Blue",PATCH CORD CAT5E,85,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+CAA01-UC5E-2-B,"CAT5E Patch Cord 2 meter, Blue",PATCH CORD CAT5E,110,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+CAA01-UC5E-3-B,"CAT5E Patch Cord 3 meter, Blue",PATCH CORD CAT5E,140,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+CAA01-UC6-1-B,"CAT6 Patch Cord 1 meter, Blue",PATCH CORD CAT6,110,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+CAA01-UC6-1-W,"CAT6 UTP Patch Cord 1 meter, WHITE",PATCH CORD CAT6,110,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+CAA01-UC6-2-B,"CAT6 UTP Patch Cord 2 meters, Blue",PATCH CORD CAT6,135,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+CAA01-UC6-2-W,"CAT6 UTPPatch Cord 2 meters, WHITE",PATCH CORD CAT6,135,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+CAA01-UC6-3-B,"CAT6 Patch Cord 3 meters, Blue",PATCH CORD CAT6,180,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+CAA01-UC6-3-W,"CAT6 UTP Patch Cord 3 meters, WHITE",PATCH CORD CAT6,180,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+TSDI-81000-42-LNS,W=800 x D=1000 x H=42RU DATA CABINET; FRONT PERFORATED SPLIT DOOR W/ HANDLE LOCK; REAR PERFORATED SPLIT DOOR W/ HANDLE LOCK; SOLID METAL SINGLE COVER PANEL W/ LOCK ON BOTH SIDE; 4 PCS.CASTER WHEEL; 4 PCS. LEVELLING FEET; 30 PCS. CAGE NUTS,RACK CABINETS,42300,units,supplier-provided,/catalog/tsdi-81000-42-lns.jpg
+TSDI-61100-42-LNS,"LNS series network cabinet(W600 X D1100 X H42U) 1，Single Front door perforated w/ Handle Lock， 2，Rear split door perforated w/ Handle Lock， 3，removable Side panels with locks and latches . 4，4* casters and 4 level feet , 40sets cage nuts included。",RACK CABINETS,39000,units,supplier-provided,/catalog/tsdi-61100-42-lns.jpg
+TSDI-6800-28,"FREE STANDING CABINET Cabinet (28U), W=600mm, D=800mm, H=1440mm Capacity: 150kg (static 75kg) front door:Smoky glass with metal frame Caster wheel Levelling feet rear door: whole metal, Fan",RACK CABINETS,24000,units,supplier-provided,/catalog/tsdi-6800-28.jpg
+TSDI-WK14,"W-600mm, D-600mm, H-730mm,(14U) CLEAR Glass front door with metal frame, top cover with fan , side panel removable. SPCC steel material. Payload: 60KG. (Static 35kg) 1Xfan with wire and plug (FAN NO WARRANTY)",RACK CABINETS,9800,units,supplier-provided,/catalog/tsdi-wk14.jpg
+TSDI-6600-10U,"LNS (W600 X D600 X H10U) Knock down construction wall cabinet, Knock down packing. front smoky glass door with round lock, side panel removable. SPCC steel material. Payload: 60KG. 2*fan with wire and plug",RACK CABINETS,7500,units,supplier-provided,/catalog/tsdi-6600-10u.jpg
+TSDI-W647,"W-600mm, D-400mm, H-420mm, (7U) Wall cabinet, Knock down packing. CLEAR Glass front door with metal frame, top cover with fan , side panel removable. SPCC steel material. Load Capacity: 25KG. (static 14.5) 1Xfan with wire and plug (FAN NO WARRANTY)",RACK CABINETS,3900,units,supplier-provided,/catalog/tsdi-w647.jpg
+TSDI-PDU6-HOR,"6 Ports Universal Outlet, HORIZONTAL PDU, 220V AC input, 3 prong socket Input plug and safety power button switch, 1U, 2 Meters power cord, 19"" , Max. Current- 15 Amp., Aluminum Case, Output outlet surface is plastic made",POWER DISTRIBUTION UNIT (PDU),3450,units,supplier-provided,/catalog/tsdi-pdu6-hor.jpg
+TSDI-PDU8HOR-SPD,Horizontal Universal PDU 8 way w/ 3 prong input plug 15amp w/surge protection,POWER DISTRIBUTION UNIT (PDU),4800,Units,supplier-provided,/catalog/tsdi-pdu8hor-spd.jpg
+TSDI-HCM1,"1RU Horizontal Cable Manager FRONT ONLY with PLASTIC COVER. 1RU - 482mm W (18.9""), 53mm D (2.75”)",HORIZONTAL CABLE MANAGER,350,Units,supplier-provided,/catalog/tsdi-hcm1.jpg
+TSDI-5451,CANTELIVER TRAY FOR 2 POST/4 POST OPEN BAY RACK; DATA CABINETS 14U/21U/28U/42U/45U/47U (WIDTH-480MM x DEPTH=450MM x HEIGHT=1RU),HORIZONTAL CABLE MANAGER,1100,Units,illustrative,https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80
+TSDI-FDF-YYY-LC-SM(MM)-WM,MINI WALL MOUNT FDF FIBER BOX (EMPTY) (Can accept 9pcs LC Duplex or 9pcs SC Simplex either MM or SM),FIBER AND COPPER ACCESSORIES,650,Units,supplier-provided,/catalog/tsdi-fdf-yyy-lc-sm-mm--wm.jpg
+FFC 55-2-S,LC adapter SM Duplex,FIBER AND COPPER ACCESSORIES,80,pcs,supplier-provided,/catalog/ffc-55-2-s.jpg
+FFC55-2,LC adapter duplex OM3,FIBER AND COPPER ACCESSORIES,95,pcs,supplier-provided,/catalog/ffc55-2.jpg
+FAS50-1-1,"SM LC pigtail ( simplex), 1meter",FIBER AND COPPER ACCESSORIES,90,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+TSDI-FB2P,"(empty) Data Pop up floor socket (W: 101mm, D: 63.5mm, L: 101mm",FIBER AND COPPER ACCESSORIES,850,Units,supplier-provided,/catalog/tsdi-fb2p.jpg
+TSDI-BLK,Blank insert for Pop Up,FIBER AND COPPER ACCESSORIES,50,pcs,supplier-provided,/catalog/tsdi-blk.jpg
+TSDI-FB1,1port insert for Pop Up (only accept keystone jack),FIBER AND COPPER ACCESSORIES,50,pcs,supplier-provided,/catalog/tsdi-fb1.jpg
+TSDI-FB2,2portS insert for Pop Up (only accept keystone jack),FIBER AND COPPER ACCESSORIES,50,pcs,supplier-provided,/catalog/tsdi-fb2.jpg
+TSDI-CAT6-RJ45-EZ,"Cat6 EZ RJ45 connector (Pass thru)w/ boots, white",FIBER AND COPPER ACCESSORIES,25,pcs,supplier-provided,/catalog/tsdi-cat6-rj45-ez.jpg
+TSDI-CAT6-EZ-TOOL,EZ RJ45 crimping tool,FIBER AND COPPER ACCESSORIES,3500,unt,supplier-provided,/catalog/tsdi-cat6-ez-tool.jpg
+TSDI-CNM6,Cage Nut M6,FIBER AND COPPER ACCESSORIES,25,pcs,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+TSDI-VELCRO,"VELCRO TIES W-20MM, /MTR",FIBER AND COPPER ACCESSORIES,25,m,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+TSDI-WM100*200-EZ-5,"Environmentally Friendly Electro-Galvanized Coating, Q235 Material, Wire Diameter 5mm, Height 100mm, Width 200mm, 3meters length",WIRE MESH (WIRE BASKET),2500,Units,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+TSDI-WM100*300-EZ-5,"Environmentally Friendly Electro-Galvanized Coating, Q235 Material, Wire Diameter 5mm, Height 100mm, Width 300mm, 3meters length",WIRE MESH (WIRE BASKET),2800,Units,illustrative,https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80
+TSDI-KK34,Wire mesh connector/coupler,WIRE MESH (WIRE BASKET),25,pcs,supplier-provided,/catalog/tsdi-kk34.jpg

@@ -20,6 +20,15 @@ export const BRANDS: Brand[] = [
     website: 'https://ui.com'
   },
   {
+    id: 'linkbasic',
+    name: 'Linkbasic',
+    slug: 'linkbasic',
+    originCountry: 'Global',
+    description: 'Structured cabling solutions, copper patch cords, keystone jacks, network cabinets, and data enclosures.',
+    productCount: 46,
+    website: 'https://www.linkbasic.us'
+  },
+  {
     id: 'hikvision',
     name: 'Hikvision',
     slug: 'hikvision',

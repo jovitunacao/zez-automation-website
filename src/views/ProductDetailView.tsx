@@ -15,6 +15,7 @@ import {
   Share2
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata } from '../utils/productUtils';
 
 export const ProductDetailView: React.FC = () => {
   const { 
@@ -28,6 +29,10 @@ export const ProductDetailView: React.FC = () => {
   } = useApp();
 
   const product = products.find(p => p.id === selectedProductId) || products[0];
+
+  const imgMeta = product ? getProductImageMetadata(product) : null;
+  const salesUnit = product ? getProductSalesUnit(product) : '';
+  const displayBrand = product ? getDisplayBrand(product.brand) : '';
 
   const [selectedImage, setSelectedImage] = useState(product?.mainImage || '');
   const [quantity, setQuantity] = useState(1);
@@ -83,7 +88,7 @@ export const ProductDetailView: React.FC = () => {
           <span>/</span>
           <span>{product.categoryName}</span>
           <span>/</span>
-          <span className="font-semibold text-gray-800">{product.brand}</span>
+          <span className="font-semibold text-gray-800">{displayBrand}</span>
           <span>/</span>
           <span className="font-mono text-gray-400">{product.model}</span>
         </div>
@@ -100,10 +105,15 @@ export const ProductDetailView: React.FC = () => {
               alt={product.name}
               className="max-h-full max-w-full object-contain hover:scale-105 transition-transform duration-300"
             />
-            <div className="absolute top-4 left-4">
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
+            <div className="absolute top-4 left-4 flex flex-col gap-1.5 items-start z-10">
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200 shadow-2xs">
                 {product.stockStatus}
               </span>
+              {imgMeta && (
+                <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border shadow-2xs ${imgMeta.badgeColor}`}>
+                  {imgMeta.label}
+                </span>
+              )}
             </div>
             <button
               onClick={() => addToCompare(product)}
@@ -113,6 +123,17 @@ export const ProductDetailView: React.FC = () => {
               <Scale className="w-4 h-4" />
             </button>
           </div>
+
+          {/* Illustrative image audit disclaimer if pending exact-model supplier photo */}
+          {imgMeta?.isIllustrative && (
+            <div className="text-xs text-amber-900 bg-amber-50 p-3 rounded-lg border border-amber-200 flex items-start gap-2.5 shadow-2xs">
+              <HelpCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">Illustrative Representation: </span>
+                <span>Exact item photograph pending distributor intake verification. Technical part numbers, category specifications, and SRPs shown are authoritative.</span>
+              </div>
+            </div>
+          )}
 
           {/* Thumbnails */}
           <div className="flex items-center gap-3 overflow-x-auto pb-1">
@@ -159,7 +180,7 @@ export const ProductDetailView: React.FC = () => {
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="font-bold text-[#B5121B] uppercase tracking-wider text-sm">
-                {product.brand}
+                {displayBrand}
               </span>
               <span className="font-mono text-gray-500">SKU: {product.sku}</span>
             </div>
@@ -179,10 +200,11 @@ export const ProductDetailView: React.FC = () => {
           <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 space-y-2">
             <div className="flex items-baseline justify-between">
               <div>
-                <span className="text-xs text-gray-500 block">Sample Distributor Reference Price:</span>
+                <span className="text-xs text-gray-500 block">Suggested Retail Price (SRP):</span>
                 <span className="text-2xl sm:text-3xl font-black text-[#292F36]">
                   {product.pricePhp ? `₱${product.pricePhp.toLocaleString()}` : 'For Project Pricing'}
                 </span>
+                {salesUnit && <span className="text-sm font-semibold text-gray-600 ml-1">/ {salesUnit}</span>}
                 <span className="text-xs text-gray-400 ml-2">PHP (Net of VAT)</span>
               </div>
               <div className="text-right">

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Product } from '../types';
+import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata } from '../utils/productUtils';
 
 export const ShopView: React.FC = () => {
   const { 
@@ -39,8 +40,9 @@ export const ShopView: React.FC = () => {
       // Search query
       if (filters.searchQuery.trim()) {
         const query = filters.searchQuery.toLowerCase();
+        const displayBrand = getDisplayBrand(product.brand).toLowerCase();
         const matchesName = product.name.toLowerCase().includes(query);
-        const matchesBrand = product.brand.toLowerCase().includes(query);
+        const matchesBrand = displayBrand.includes(query) || product.brand.toLowerCase().includes(query);
         const matchesModel = product.model.toLowerCase().includes(query);
         const matchesSku = product.sku.toLowerCase().includes(query);
         const matchesCategory = product.categoryName.toLowerCase().includes(query);
@@ -60,7 +62,13 @@ export const ShopView: React.FC = () => {
 
       // Brands
       if (filters.selectedBrands.length > 0) {
-        if (!filters.selectedBrands.includes(product.brand)) {
+        const matchesBrand = filters.selectedBrands.some(selected => {
+          if (selected === 'Unspecified') {
+            return !product.brand || product.brand.toLowerCase() === 'manufacturer to verify' || product.brand.toLowerCase() === 'unspecified';
+          }
+          return product.brand.toLowerCase() === selected.toLowerCase() || getDisplayBrand(product.brand).toLowerCase() === selected.toLowerCase();
+        });
+        if (!matchesBrand) {
           return false;
         }
       }
@@ -144,6 +152,35 @@ export const ShopView: React.FC = () => {
       };
     });
   };
+
+  // Distinct brand filter options supporting Linkbasic, Unspecified, and catalog brands
+  const brandFilterOptions = useMemo(() => {
+    const list: { name: string; count: number }[] = [];
+
+    // Linkbasic
+    const linkbasicCount = products.filter(p => p.brand.toLowerCase() === 'linkbasic').length;
+    if (linkbasicCount > 0 || brands.some(b => b.name.toLowerCase() === 'linkbasic')) {
+      list.push({ name: 'Linkbasic', count: linkbasicCount });
+    }
+
+    // Unspecified (for items marked Manufacturer to verify)
+    const unspecifiedCount = products.filter(p => !p.brand || p.brand.toLowerCase() === 'manufacturer to verify' || p.brand.toLowerCase() === 'unspecified').length;
+    if (unspecifiedCount > 0) {
+      list.push({ name: 'Unspecified', count: unspecifiedCount });
+    }
+
+    // Other brands with active counts
+    brands.forEach(b => {
+      if (b.name.toLowerCase() !== 'linkbasic') {
+        const count = products.filter(p => p.brand.toLowerCase() === b.name.toLowerCase()).length;
+        if (count > 0) {
+          list.push({ name: b.name, count });
+        }
+      }
+    });
+
+    return list;
+  }, [products, brands]);
 
   // Active filters count
   const activeFilterCount =
@@ -278,27 +315,26 @@ export const ShopView: React.FC = () => {
               Manufacturer / Brand
             </h3>
             <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-              {brands.map((brand) => {
-                const count = products.filter(p => p.brand.toLowerCase() === brand.name.toLowerCase() || p.brand.includes(brand.name)).length;
-                const checked = filters.selectedBrands.includes(brand.name);
+              {brandFilterOptions.map((brandOpt) => {
+                const checked = filters.selectedBrands.includes(brandOpt.name);
                 return (
                   <label
-                    key={brand.id}
+                    key={brandOpt.name}
                     className="flex items-center justify-between text-xs text-gray-700 hover:text-[#B5121B] cursor-pointer py-0.5"
                   >
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
                         checked={checked}
-                        onChange={() => toggleBrand(brand.name)}
+                        onChange={() => toggleBrand(brandOpt.name)}
                         className="rounded border-gray-300 text-[#B5121B] focus:ring-[#B5121B]"
                       />
                       <span className={checked ? 'font-bold text-[#B5121B]' : ''}>
-                        {brand.name}
+                        {brandOpt.name}
                       </span>
                     </div>
                     <span className="text-[10px] text-gray-400 font-mono">
-                      ({count})
+                      ({brandOpt.count})
                     </span>
                   </label>
                 );
@@ -312,7 +348,7 @@ export const ShopView: React.FC = () => {
               Availability
             </h3>
             <div className="space-y-1.5">
-              {['In Stock', 'Pre-Order (5-7 Days)'].map((status) => {
+              {['Contact for Availability', 'In Stock', 'Pre-Order (5-7 Days)'].map((status) => {
                 const checked = filters.stockFilter.includes(status);
                 return (
                   <label
@@ -479,166 +515,194 @@ export const ShopView: React.FC = () => {
           ) : viewMode === 'grid' ? (
             /* Grid View */
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
-              {visibleProducts.map((product) => (
-                <div
-                  key={product.id}
-                  className="bg-white rounded-xl border border-gray-200 hover:border-gray-300 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between overflow-hidden group"
-                >
-                  {/* Image */}
-                  <div className="relative p-4 bg-gray-50/60 border-b border-gray-100 flex items-center justify-center h-48">
-                    <img
-                      src={product.mainImage}
-                      alt={product.name}
-                      className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
-                    />
-                    <div className="absolute top-2.5 left-2.5">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-                        {product.stockStatus}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => addToCompare(product)}
-                      className="absolute top-2.5 right-2.5 p-1.5 bg-white rounded-md shadow-2xs text-gray-400 hover:text-[#B5121B] border border-gray-200"
-                      title="Compare specifications"
-                    >
-                      <Scale className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  {/* Body */}
-                  <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
-                    <div className="space-y-1">
-                      <div className="flex items-center justify-between text-[11px] text-[#5E646D]">
-                        <span className="font-bold text-[#B5121B] uppercase tracking-wide">
-                          {product.brand}
+              {visibleProducts.map((product) => {
+                const imgMeta = getProductImageMetadata(product);
+                const salesUnit = getProductSalesUnit(product);
+                const displayBrand = getDisplayBrand(product.brand);
+                return (
+                  <div
+                    key={product.id}
+                    className="bg-white rounded-xl border border-gray-200 hover:border-gray-300 shadow-2xs hover:shadow-md transition-all flex flex-col justify-between overflow-hidden group"
+                  >
+                    {/* Image */}
+                    <div className="relative p-4 bg-gray-50/60 border-b border-gray-100 flex items-center justify-center h-48">
+                      <img
+                        src={product.mainImage}
+                        alt={product.name}
+                        className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
+                      />
+                      <div className="absolute top-2.5 left-2.5 flex flex-col gap-1 items-start z-10">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 shadow-2xs">
+                          {product.stockStatus}
                         </span>
-                        <span className="font-mono">{product.sku}</span>
+                        <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border shadow-2xs ${imgMeta.badgeColor}`}>
+                          {imgMeta.shortLabel}
+                        </span>
                       </div>
-
-                      <h3
-                        onClick={() => navigateToProduct(product.id)}
-                        className="font-bold text-sm text-[#292F36] hover:text-[#B5121B] cursor-pointer line-clamp-2 leading-tight transition-colors"
+                      <button
+                        onClick={() => addToCompare(product)}
+                        className="absolute top-2.5 right-2.5 p-1.5 bg-white rounded-md shadow-2xs text-gray-400 hover:text-[#B5121B] border border-gray-200"
+                        title="Compare specifications"
                       >
-                        {product.name}
-                      </h3>
-
-                      <p className="text-xs text-gray-500 line-clamp-2 pt-0.5">
-                        {product.shortDescription}
-                      </p>
+                        <Scale className="w-3.5 h-3.5" />
+                      </button>
                     </div>
 
-                    {/* Specs list */}
-                    <div className="py-2 border-y border-gray-100 text-[11px] text-gray-600 space-y-1">
-                      {product.keySpecs.slice(0, 2).map((s, idx) => (
-                        <div key={idx} className="flex items-center gap-1.5 truncate">
-                          <span className="w-1.5 h-1.5 rounded-full bg-[#B5121B] shrink-0" />
-                          <span className="truncate">{s}</span>
+                    {/* Body */}
+                    <div className="p-4 flex-1 flex flex-col justify-between space-y-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px] text-[#5E646D]">
+                          <span className="font-bold text-[#B5121B] uppercase tracking-wide">
+                            {displayBrand}
+                          </span>
+                          <span className="font-mono">{product.sku}</span>
                         </div>
-                      ))}
-                    </div>
 
-                    {/* Price and Buttons */}
-                    <div className="space-y-3 pt-1">
-                      <div className="flex items-baseline justify-between">
-                        <div>
-                          <div className="text-[10px] text-gray-400 uppercase tracking-wide">
-                            Sample Price
-                          </div>
-                          <div className="text-base font-extrabold text-[#292F36]">
-                            {product.pricePhp ? (
-                              `₱${product.pricePhp.toLocaleString()}`
-                            ) : (
-                              <span className="text-xs text-gray-500">Call for Pricing</span>
-                            )}
-                          </div>
-                        </div>
-                        <span className="text-[10px] text-gray-400">excl. VAT</span>
+                        <h3
+                          onClick={() => navigateToProduct(product.id)}
+                          className="font-bold text-sm text-[#292F36] hover:text-[#B5121B] cursor-pointer line-clamp-2 leading-tight transition-colors"
+                        >
+                          {product.name}
+                        </h3>
+
+                        <p className="text-xs text-gray-500 line-clamp-2 pt-0.5">
+                          {product.shortDescription}
+                        </p>
                       </div>
 
-                      <div className="grid grid-cols-2 gap-2">
-                        <button
-                          onClick={() => navigateToProduct(product.id)}
-                          className="w-full py-2 px-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center gap-1 transition-colors"
-                        >
-                          <Eye className="w-3.5 h-3.5" />
-                          <span>Specs</span>
-                        </button>
-                        <button
-                          onClick={() => addToQuoteCart(product, 1)}
-                          className="w-full py-2 px-2 text-xs font-bold text-white bg-[#B5121B] hover:bg-[#8F1018] rounded-lg flex items-center justify-center gap-1 transition-colors shadow-2xs"
-                        >
-                          <ShoppingCart className="w-3.5 h-3.5" />
-                          <span>Add to Quote</span>
-                        </button>
+                      {/* Specs list */}
+                      <div className="py-2 border-y border-gray-100 text-[11px] text-gray-600 space-y-1">
+                        {product.keySpecs.slice(0, 2).map((s, idx) => (
+                          <div key={idx} className="flex items-center gap-1.5 truncate">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#B5121B] shrink-0" />
+                            <span className="truncate">{s}</span>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Price and Buttons */}
+                      <div className="space-y-3 pt-1">
+                        <div className="flex items-baseline justify-between">
+                          <div>
+                            <div className="text-[10px] text-gray-400 uppercase tracking-wide">
+                              SRP Reference
+                            </div>
+                            <div className="text-base font-extrabold text-[#292F36]">
+                              {product.pricePhp ? (
+                                <>
+                                  ₱{product.pricePhp.toLocaleString()}
+                                  {salesUnit && <span className="text-xs font-normal text-gray-500 ml-1">/ {salesUnit}</span>}
+                                </>
+                              ) : (
+                                <span className="text-xs text-gray-500">Contact for Quote</span>
+                              )}
+                            </div>
+                          </div>
+                          <span className="text-[10px] text-gray-400">Net of VAT</span>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            onClick={() => navigateToProduct(product.id)}
+                            className="w-full py-2 px-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg flex items-center justify-center gap-1 transition-colors"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>Specs</span>
+                          </button>
+                          <button
+                            onClick={() => addToQuoteCart(product, 1)}
+                            className="w-full py-2 px-2 text-xs font-bold text-white bg-[#B5121B] hover:bg-[#8F1018] rounded-lg flex items-center justify-center gap-1 transition-colors shadow-2xs"
+                          >
+                            <ShoppingCart className="w-3.5 h-3.5" />
+                            <span>Add to Quote</span>
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             /* List View */
             <div className="space-y-3">
-              {visibleProducts.map((product) => (
-                <div
-                  key={product.id}
-                  className="bg-white rounded-xl border border-gray-200 hover:border-gray-300 p-4 shadow-2xs flex flex-col sm:flex-row items-center gap-4 group"
-                >
-                  <img
-                    src={product.mainImage}
-                    alt={product.name}
-                    className="w-32 h-32 object-contain rounded-lg border border-gray-100 bg-gray-50 shrink-0"
-                  />
-                  <div className="flex-1 min-w-0 space-y-1.5 text-left w-full">
-                    <div className="flex items-center gap-2 text-xs">
-                      <span className="font-bold text-[#B5121B] uppercase">{product.brand}</span>
-                      <span>·</span>
-                      <span className="font-mono text-gray-500">SKU: {product.sku}</span>
-                      <span>·</span>
-                      <span className="text-emerald-700 font-semibold">{product.stockStatus}</span>
+              {visibleProducts.map((product) => {
+                const imgMeta = getProductImageMetadata(product);
+                const salesUnit = getProductSalesUnit(product);
+                const displayBrand = getDisplayBrand(product.brand);
+                return (
+                  <div
+                    key={product.id}
+                    className="bg-white rounded-xl border border-gray-200 hover:border-gray-300 p-4 shadow-2xs flex flex-col sm:flex-row items-center gap-4 group"
+                  >
+                    <div className="relative shrink-0">
+                      <img
+                        src={product.mainImage}
+                        alt={product.name}
+                        className="w-32 h-32 object-contain rounded-lg border border-gray-100 bg-gray-50 shrink-0"
+                      />
+                      <span className={`absolute bottom-1 left-1 text-[8px] font-semibold px-1 py-0.5 rounded border ${imgMeta.badgeColor}`}>
+                        {imgMeta.shortLabel}
+                      </span>
                     </div>
+                    <div className="flex-1 min-w-0 space-y-1.5 text-left w-full">
+                      <div className="flex items-center gap-2 text-xs">
+                        <span className="font-bold text-[#B5121B] uppercase">{displayBrand}</span>
+                        <span>·</span>
+                        <span className="font-mono text-gray-500">SKU: {product.sku}</span>
+                        <span>·</span>
+                        <span className="text-emerald-700 font-semibold">{product.stockStatus}</span>
+                      </div>
 
-                    <h3
-                      onClick={() => navigateToProduct(product.id)}
-                      className="font-bold text-sm text-[#292F36] hover:text-[#B5121B] cursor-pointer transition-colors"
-                    >
-                      {product.name}
-                    </h3>
-                    <p className="text-xs text-gray-500 line-clamp-2">
-                      {product.shortDescription}
-                    </p>
-
-                    <div className="flex items-center gap-3 pt-1 text-xs text-gray-600 flex-wrap">
-                      {product.keySpecs.slice(0, 3).map((s, idx) => (
-                        <span key={idx} className="bg-gray-100 px-2 py-0.5 rounded text-[11px]">
-                          {s}
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="shrink-0 text-right w-full sm:w-auto pt-3 sm:pt-0 border-t sm:border-t-0 border-gray-100 space-y-2">
-                    <div className="text-base font-extrabold text-[#292F36]">
-                      {product.pricePhp ? `₱${product.pricePhp.toLocaleString()}` : 'For Project Pricing'}
-                    </div>
-                    <div className="flex sm:flex-col gap-2">
-                      <button
-                        onClick={() => addToQuoteCart(product, 1)}
-                        className="flex-1 sm:flex-initial py-2 px-3 text-xs font-bold text-white bg-[#B5121B] hover:bg-[#8F1018] rounded-lg flex items-center justify-center gap-1.5 transition-colors"
-                      >
-                        <ShoppingCart className="w-3.5 h-3.5" />
-                        <span>Add to Quote</span>
-                      </button>
-                      <button
+                      <h3
                         onClick={() => navigateToProduct(product.id)}
-                        className="py-1.5 px-3 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg text-center"
+                        className="font-bold text-sm text-[#292F36] hover:text-[#B5121B] cursor-pointer transition-colors"
                       >
-                        View Full Specs
-                      </button>
+                        {product.name}
+                      </h3>
+                      <p className="text-xs text-gray-500 line-clamp-2">
+                        {product.shortDescription}
+                      </p>
+
+                      <div className="flex items-center gap-3 pt-1 text-xs text-gray-600 flex-wrap">
+                        {product.keySpecs.slice(0, 3).map((s, idx) => (
+                          <span key={idx} className="bg-gray-100 px-2 py-0.5 rounded text-[11px]">
+                            {s}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="shrink-0 text-right w-full sm:w-auto pt-3 sm:pt-0 border-t sm:border-t-0 border-gray-100 space-y-2">
+                      <div className="text-base font-extrabold text-[#292F36]">
+                        {product.pricePhp ? (
+                          <>
+                            ₱{product.pricePhp.toLocaleString()}
+                            {salesUnit && <span className="text-xs font-normal text-gray-500 ml-1">/ {salesUnit}</span>}
+                          </>
+                        ) : (
+                          'For Project Pricing'
+                        )}
+                      </div>
+                      <div className="flex sm:flex-col gap-2">
+                        <button
+                          onClick={() => addToQuoteCart(product, 1)}
+                          className="flex-1 sm:flex-initial py-2 px-3 text-xs font-bold text-white bg-[#B5121B] hover:bg-[#8F1018] rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                        >
+                          <ShoppingCart className="w-3.5 h-3.5" />
+                          <span>Add to Quote</span>
+                        </button>
+                        <button
+                          onClick={() => navigateToProduct(product.id)}
+                          className="py-1.5 px-3 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg text-center"
+                        >
+                          View Full Specs
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
@@ -700,8 +764,8 @@ export const ShopView: React.FC = () => {
               <div className="space-y-2 pt-3 border-t border-gray-100">
                 <h4 className="text-xs font-bold uppercase text-gray-700">Brands</h4>
                 <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                  {brands.map((b) => (
-                    <label key={b.id} className="flex items-center gap-2 text-xs text-gray-700">
+                  {brandFilterOptions.map((b) => (
+                    <label key={b.name} className="flex items-center gap-2 text-xs text-gray-700">
                       <input
                         type="checkbox"
                         checked={filters.selectedBrands.includes(b.name)}
@@ -709,6 +773,24 @@ export const ShopView: React.FC = () => {
                         className="rounded text-[#B5121B]"
                       />
                       <span>{b.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* Mobile Stock Status List */}
+              <div className="space-y-2 pt-3 border-t border-gray-100">
+                <h4 className="text-xs font-bold uppercase text-gray-700">Availability</h4>
+                <div className="space-y-1.5">
+                  {['Contact for Availability', 'In Stock', 'Pre-Order (5-7 Days)'].map((status) => (
+                    <label key={status} className="flex items-center gap-2 text-xs text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={filters.stockFilter.includes(status)}
+                        onChange={() => toggleStock(status)}
+                        className="rounded text-[#B5121B]"
+                      />
+                      <span>{status}</span>
                     </label>
                   ))}
                 </div>

@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { Header } from './components/layout/Header';
 import { Footer } from './components/layout/Footer';
@@ -26,6 +26,11 @@ import { ContactUsView } from './views/ContactUsView';
 
 const MainContent: React.FC = () => {
   const { activeView, activeRfqForPrint, setActiveRfqForPrint } = useApp();
+
+  // Reset scroll to top on SPA view transition
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+  }, [activeView]);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8F9FA] text-[#292F36]">

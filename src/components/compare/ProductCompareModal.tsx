@@ -1,6 +1,7 @@
 import React from 'react';
 import { X, Trash2, ShoppingCart, Plus, Check } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { getDisplayBrand, getProductSalesUnit } from '../../utils/productUtils';
 
 export const ProductCompareModal: React.FC = () => {
   const { 
@@ -47,49 +48,59 @@ export const ProductCompareModal: React.FC = () => {
           <div className="min-w-[640px]">
             {/* Products Row */}
             <div className={`grid gap-4 pb-6 border-b border-gray-200 grid-cols-${compareList.length}`}>
-              {compareList.map((prod) => (
-                <div key={prod.id} className="space-y-3 relative flex flex-col justify-between">
-                  <button
-                    onClick={() => removeFromCompare(prod.id)}
-                    className="absolute top-0 right-0 p-1 text-gray-400 hover:text-red-600 bg-white/80 rounded"
-                    title="Remove item"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-
-                  <div className="space-y-2">
-                    <img
-                      src={prod.mainImage}
-                      alt={prod.name}
-                      className="w-full h-36 object-contain rounded-lg border border-gray-100 bg-gray-50"
-                    />
-                    <span className="text-[11px] font-bold text-[#B5121B] uppercase tracking-wide">
-                      {prod.brand}
-                    </span>
-                    <h4 
-                      onClick={() => {
-                        setIsCompareModalOpen(false);
-                        navigateToProduct(prod.id);
-                      }}
-                      className="text-xs font-bold text-gray-900 hover:text-[#B5121B] cursor-pointer line-clamp-2"
+              {compareList.map((prod) => {
+                const salesUnit = getProductSalesUnit(prod);
+                return (
+                  <div key={prod.id} className="space-y-3 relative flex flex-col justify-between">
+                    <button
+                      onClick={() => removeFromCompare(prod.id)}
+                      className="absolute top-0 right-0 p-1 text-gray-400 hover:text-red-600 bg-white/80 rounded"
+                      title="Remove item"
                     >
-                      {prod.name}
-                    </h4>
-                    <p className="text-[11px] text-gray-500 font-mono">Model: {prod.model}</p>
-                    <div className="text-sm font-extrabold text-[#292F36]">
-                      {prod.pricePhp ? `₱${prod.pricePhp.toLocaleString()}` : 'For Project Pricing'}
-                    </div>
-                  </div>
+                      <X className="w-4 h-4" />
+                    </button>
 
-                  <button
-                    onClick={() => addToQuoteCart(prod, 1)}
-                    className="w-full mt-2 py-2 px-3 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors"
-                  >
-                    <ShoppingCart className="w-3.5 h-3.5" />
-                    <span>Add to Quote</span>
-                  </button>
-                </div>
-              ))}
+                    <div className="space-y-2">
+                      <img
+                        src={prod.mainImage}
+                        alt={prod.name}
+                        className="w-full h-36 object-contain rounded-lg border border-gray-100 bg-gray-50"
+                      />
+                      <span className="text-[11px] font-bold text-[#B5121B] uppercase tracking-wide">
+                        {getDisplayBrand(prod.brand)}
+                      </span>
+                      <h4 
+                        onClick={() => {
+                          setIsCompareModalOpen(false);
+                          navigateToProduct(prod.id);
+                        }}
+                        className="text-xs font-bold text-gray-900 hover:text-[#B5121B] cursor-pointer line-clamp-2"
+                      >
+                        {prod.name}
+                      </h4>
+                      <p className="text-[11px] text-gray-500 font-mono">Model: {prod.model}</p>
+                      <div className="text-sm font-extrabold text-[#292F36]">
+                        {prod.pricePhp ? (
+                          <>
+                            ₱{prod.pricePhp.toLocaleString()}
+                            {salesUnit && <span className="text-xs font-normal text-gray-500 ml-1">/ {salesUnit}</span>}
+                          </>
+                        ) : (
+                          'For Project Pricing'
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => addToQuoteCart(prod, 1)}
+                      className="w-full mt-2 py-2 px-3 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <ShoppingCart className="w-3.5 h-3.5" />
+                      <span>Add to Quote</span>
+                    </button>
+                  </div>
+                );
+              })}
             </div>
 
             {/* Spec Sections */}
