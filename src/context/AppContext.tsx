@@ -66,6 +66,7 @@ interface AppContextType {
   addProduct: (product: Omit<Product, 'id'>) => Promise<{ success: boolean; error?: string }>;
   updateProduct: (product: Product) => Promise<{ success: boolean; error?: string }>;
   deleteProduct: (id: string) => Promise<{ success: boolean; error?: string }>;
+  togglePublishProduct: (id: string) => Promise<{ success: boolean; error?: string }>;
 
   // Search & Filter
   filters: FilterState;
@@ -233,6 +234,12 @@ const INITIAL_FILTER_STATE: FilterState = {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
+// The 12 template placeholder IDs from original demo schema.sql that should never overwrite real products
+const LEGACY_MOCK_SAMPLE_IDS = new Set([
+  'prod-01', 'prod-02', 'prod-03', 'prod-04', 'prod-05', 'prod-06',
+  'prod-07', 'prod-08', 'prod-09', 'prod-10', 'prod-11', 'prod-12'
+]);
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Navigation
   const [activeView, setActiveView] = useState<ActiveView>('home');
@@ -244,16 +251,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const stored = localStorage.getItem('zez_products');
       if (stored) {
         const parsed = JSON.parse(stored);
-        // Only keep stored items if they contain the verified 46 consignment items and no legacy mock
+        // Keep stored items if they contain the consignment catalog and no legacy template placeholders
         if (
           Array.isArray(parsed) && 
           parsed.length >= 46 && 
           parsed.some(p => p.id?.startsWith('consignment-') || p.sku === 'CLA04-UC5E-7035') &&
-          !parsed.some(p => p.id?.startsWith('prod-'))
+          !parsed.some(p => LEGACY_MOCK_SAMPLE_IDS.has(p.id))
         ) {
           return parsed;
         } else {
-          // Clear outdated or legacy storage
+          // Clear outdated legacy mock storage
           localStorage.removeItem('zez_products');
         }
       }
@@ -380,14 +387,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         p.sku === 'CLA04-UC5E-7035' || 
         p.sku === 'CLA04-UC6-5015'
       );
-      const isLegacyOnly = dbProducts.every(p => p.id?.startsWith('prod-'));
+      const isLegacyOnly = dbProducts.length > 0 && dbProducts.every(p => LEGACY_MOCK_SAMPLE_IDS.has(p.id));
 
-      if (hasConsignmentItems) {
-        // Supabase has the consignment products! It is authoritative.
+      if (hasConsignmentItems || (!isLegacyOnly && dbProducts.length > 0)) {
+        // Supabase has the consignment or custom products! It is authoritative.
         setProducts(dbProducts);
-        setSupabaseSeedPending(false);
+        setSupabaseSeedPending(!hasConsignmentItems);
         setProductsError(null);
-      } else if (isLegacyOnly || !hasConsignmentItems) {
+      } else if (isLegacyOnly) {
         // Database has records, but they are legacy sample products from schema.sql, NOT the 46 consignment items!
         setSupabaseSeedPending(true);
         console.warn(`[ZEZ App] Supabase contains ${dbProducts.length} legacy sample products. Consignment seed pending: run supabase/consignment_seed.sql.`);
@@ -448,7 +455,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (
         products.length >= 46 && 
         products.some(p => p.id?.startsWith('consignment-') || p.sku === 'CLA04-UC5E-7035') &&
-        !products.some(p => p.id?.startsWith('prod-'))
+        !products.some(p => LEGACY_MOCK_SAMPLE_IDS.has(p.id))
       ) {
         localStorage.setItem('zez_products', JSON.stringify(products));
       }
@@ -652,8 +659,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Product CRUD with Cloud Database Persistence (Fail-Fast: only update state if DB operation succeeds)
   const addProduct = async (newProd: Omit<Product, 'id'>): Promise<{ success: boolean; error?: string }> => {
-    const id = `prod-${Date.now()}`;
-    const product: Product = { ...newProd, id, isDemo: !isSupabaseConfigured() };
+    const trimmedSku = newProd.sku?.trim();
+    if (!trimmedSku) {
+      return { success: false, error: 'Product SKU is required.' };
+    }
+
+    // Prevent duplicate SKUs across products
+    const existingWithSku = products.find(
+      p => p.sku?.trim().toLowerCase() === trimmedSku.toLowerCase()
+    );
+    if (existingWithSku) {
+      return { 
+        success: false, 
+        error: `Duplicate SKU: A product with SKU "${trimmedSku}" already exists (${existingWithSku.name}). Each product SKU must be unique.` 
+      };
+    }
+
+    const id = `adm-${Date.now()}`;
+    const product: Product = { 
+      ...newProd, 
+      sku: trimmedSku,
+      id, 
+      isPublished: newProd.isPublished !== undefined ? newProd.isPublished : true,
+      isDemo: !isSupabaseConfigured() 
+    };
 
     if (isSupabaseConfigured()) {
       const res = await createProductInSupabase(product);
@@ -669,8 +698,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateProduct = async (updated: Product): Promise<{ success: boolean; error?: string }> => {
+    const trimmedSku = updated.sku?.trim();
+    if (!trimmedSku) {
+      return { success: false, error: 'Product SKU is required.' };
+    }
+
+    // Prevent duplicate SKUs with other products
+    const existingWithSku = products.find(
+      p => p.id !== updated.id && p.sku?.trim().toLowerCase() === trimmedSku.toLowerCase()
+    );
+    if (existingWithSku) {
+      return { 
+        success: false, 
+        error: `Duplicate SKU: Another product with SKU "${trimmedSku}" already exists (${existingWithSku.name}). Each product SKU must be unique.` 
+      };
+    }
+
+    const sanitizedProduct: Product = {
+      ...updated,
+      sku: trimmedSku,
+      isPublished: updated.isPublished !== undefined ? updated.isPublished : true
+    };
+
     if (isSupabaseConfigured()) {
-      const res = await updateProductInSupabase(updated);
+      const res = await updateProductInSupabase(sanitizedProduct);
       if (!res.success) {
         console.error('[ZEZ Supabase] Product update failed:', res.error);
         return { success: false, error: res.error || 'Failed to update product in database.' };
@@ -678,7 +729,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     // Only update local state if database operation succeeded
-    setProducts(prev => prev.map(p => (p.id === updated.id ? updated : p)));
+    setProducts(prev => prev.map(p => (p.id === sanitizedProduct.id ? sanitizedProduct : p)));
     return { success: true };
   };
 
@@ -694,6 +745,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Only update local state if database operation succeeded
     setProducts(prev => prev.filter(p => p.id !== id));
     return { success: true };
+  };
+
+  const togglePublishProduct = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    const prod = products.find(p => p.id === id);
+    if (!prod) {
+      return { success: false, error: 'Product not found.' };
+    }
+    const updated: Product = {
+      ...prod,
+      isPublished: prod.isPublished === false ? true : false
+    };
+    return await updateProduct(updated);
   };
 
   // Admin Auth Handlers
@@ -768,6 +831,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addProduct,
         updateProduct,
         deleteProduct,
+        togglePublishProduct,
         filters,
         setFilters,
         resetFilters,

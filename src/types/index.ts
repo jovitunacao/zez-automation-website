@@ -68,6 +68,7 @@ export interface Product {
   datasheetUrl?: string;
   datasheetFileName?: string;
   isDemo?: boolean;
+  isPublished?: boolean;
   imageStatus?: ProductImageStatus;
   salesUnit?: string;
 }

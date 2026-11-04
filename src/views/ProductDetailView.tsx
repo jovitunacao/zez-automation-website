@@ -63,9 +63,9 @@ export const ProductDetailView: React.FC = () => {
     );
   }
 
-  // Related products from the same category
+  // Related products from the same category (only published items)
   const relatedProducts = products
-    .filter(p => p.categoryId === product.categoryId && p.id !== product.id)
+    .filter(p => p.categoryId === product.categoryId && p.id !== product.id && p.isPublished !== false)
     .slice(0, 4);
 
   const handleAddToQuote = () => {
@@ -80,6 +80,20 @@ export const ProductDetailView: React.FC = () => {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-8 py-8 space-y-10">
+      {/* Archived / Hidden Product Warning Banner */}
+      {product.isPublished === false && (
+        <div className="p-4 bg-amber-50 border border-amber-300 rounded-xl flex items-center justify-between text-xs text-amber-900 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
+            <span className="font-bold">Archived Equipment:</span>
+            <span>This product is currently archived and hidden from public storefront searches and listings.</span>
+          </div>
+          <span className="font-mono text-[11px] font-semibold px-2 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300">
+            Staff View
+          </span>
+        </div>
+      )}
+
       {/* Breadcrumb & Back button */}
       <div className="flex items-center justify-between text-xs text-gray-500">
         <button

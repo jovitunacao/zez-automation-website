@@ -35,9 +35,10 @@ export const HomeView: React.FC = () => {
 
   const [featuredTab, setFeaturedTab] = useState<string>('all');
 
-  const featuredCandidateList = products.filter(p => p.isFeatured).length > 0
-    ? products.filter(p => p.isFeatured)
-    : products;
+  const publishedProducts = products.filter(p => p.isPublished !== false);
+  const featuredCandidateList = publishedProducts.filter(p => p.isFeatured).length > 0
+    ? publishedProducts.filter(p => p.isFeatured)
+    : publishedProducts;
 
   const filteredFeatured = featuredCandidateList
     .filter((p) => {

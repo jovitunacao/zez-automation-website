@@ -50,7 +50,8 @@ function mapRowToProduct(row: any): Product {
     includedAccessories: Array.isArray(row.included_accessories) ? row.included_accessories : [],
     datasheetUrl: row.datasheet_url || undefined,
     datasheetFileName: row.datasheet_file_name || undefined,
-    isDemo: Boolean(row.is_demo)
+    isDemo: Boolean(row.is_demo),
+    isPublished: row.is_published !== undefined && row.is_published !== null ? Boolean(row.is_published) : true
   };
 }
 
@@ -75,7 +76,7 @@ function mapProductToRow(prod: Product): any {
     warranty: prod.warranty,
     is_featured: prod.isFeatured ?? false,
     is_new_arrival: prod.isNewArrival ?? false,
-    is_published: true,
+    is_published: prod.isPublished !== undefined ? Boolean(prod.isPublished) : true,
     main_image: prod.mainImage,
     gallery_images: prod.galleryImages && prod.galleryImages.length > 0 ? prod.galleryImages : [prod.mainImage],
     key_specs: prod.keySpecs || [],
@@ -93,19 +94,25 @@ function mapProductToRow(prod: Product): any {
 // -----------------------------------------------------------------------------
 
 /**
- * Fetches all published products from Supabase PostgreSQL database.
+ * Fetches products from Supabase PostgreSQL database.
+ * If includeUnpublished is true (for authenticated admins), retrieves all records.
  * Returns null if Supabase is not configured or table has no records.
  */
-export async function fetchProductsFromSupabase(): Promise<{ data: Product[] | null; error?: string }> {
+export async function fetchProductsFromSupabase(includeUnpublished = false): Promise<{ data: Product[] | null; error?: string }> {
   if (!isSupabaseConfigured() || !supabase) {
     return { data: null };
   }
 
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('products')
-      .select('*')
-      .eq('is_published', true)
+      .select('*');
+
+    if (!includeUnpublished) {
+      query = query.eq('is_published', true);
+    }
+
+    const { data, error } = await query
       .order('is_featured', { ascending: false })
       .order('created_at', { ascending: false });
 
@@ -128,6 +135,7 @@ export async function fetchProductsFromSupabase(): Promise<{ data: Product[] | n
 
 /**
  * Inserts a new product into Supabase PostgreSQL (Authorized Admins only).
+ * Uses .select() to verify at least one database row was inserted.
  */
 export async function createProductInSupabase(product: Product): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured() || !supabase) {
@@ -136,13 +144,22 @@ export async function createProductInSupabase(product: Product): Promise<{ succe
 
   try {
     const row = mapProductToRow(product);
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('products')
-      .insert(row);
+      .insert(row)
+      .select('id, sku');
 
     if (error) {
       console.error('[ZEZ Supabase] Error adding product to database:', error);
       return { success: false, error: error.message };
+    }
+
+    if (!data || data.length === 0) {
+      console.error('[ZEZ Supabase] Insert affected 0 rows. Insufficient administrator privileges or policy rejection.');
+      return { 
+        success: false, 
+        error: 'Database operation affected 0 rows. Please verify active administrator authentication and permissions.' 
+      };
     }
 
     console.info(`[ZEZ Supabase] Product ${product.sku} successfully persisted to Supabase.`);
@@ -155,6 +172,7 @@ export async function createProductInSupabase(product: Product): Promise<{ succe
 
 /**
  * Updates an existing product in Supabase PostgreSQL (Authorized Admins only).
+ * Uses .select() to verify at least one database row was updated.
  */
 export async function updateProductInSupabase(product: Product): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured() || !supabase) {
@@ -163,14 +181,23 @@ export async function updateProductInSupabase(product: Product): Promise<{ succe
 
   try {
     const row = mapProductToRow(product);
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('products')
       .update(row)
-      .eq('id', product.id);
+      .eq('id', product.id)
+      .select('id, sku');
 
     if (error) {
       console.error('[ZEZ Supabase] Error updating product in database:', error);
       return { success: false, error: error.message };
+    }
+
+    if (!data || data.length === 0) {
+      console.error(`[ZEZ Supabase] Update affected 0 rows for product ${product.id}.`);
+      return { 
+        success: false, 
+        error: 'Database update affected 0 rows. The record was not found or administrator permissions were denied.' 
+      };
     }
 
     console.info(`[ZEZ Supabase] Product ${product.id} successfully updated in Supabase.`);
@@ -183,6 +210,7 @@ export async function updateProductInSupabase(product: Product): Promise<{ succe
 
 /**
  * Deletes a product from Supabase PostgreSQL (Authorized Admins only).
+ * Uses .select() to verify at least one database row was deleted.
  */
 export async function deleteProductInSupabase(productId: string): Promise<{ success: boolean; error?: string }> {
   if (!isSupabaseConfigured() || !supabase) {
@@ -190,14 +218,23 @@ export async function deleteProductInSupabase(productId: string): Promise<{ succ
   }
 
   try {
-    const { error } = await supabase
+    const { data, error } = await supabase
       .from('products')
       .delete()
-      .eq('id', productId);
+      .eq('id', productId)
+      .select('id');
 
     if (error) {
       console.error('[ZEZ Supabase] Error deleting product from database:', error);
       return { success: false, error: error.message };
+    }
+
+    if (!data || data.length === 0) {
+      console.error(`[ZEZ Supabase] Delete affected 0 rows for product ${productId}.`);
+      return { 
+        success: false, 
+        error: 'Database delete affected 0 rows. The record was not found or administrator permissions were denied.' 
+      };
     }
 
     console.info(`[ZEZ Supabase] Product ${productId} successfully deleted from Supabase.`);

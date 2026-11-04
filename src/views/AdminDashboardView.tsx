@@ -19,7 +19,10 @@ import {
   Phone, 
   Mail, 
   AlertCircle,
+  AlertTriangle,
   Eye,
+  EyeOff,
+  Archive,
   Filter,
   Database,
   Lock,
@@ -39,6 +42,7 @@ export const AdminDashboardView: React.FC = () => {
     addProduct, 
     updateProduct, 
     deleteProduct, 
+    togglePublishProduct,
     categories, 
     brands, 
     rfqRequests, 
@@ -77,31 +81,45 @@ export const AdminDashboardView: React.FC = () => {
   const [rfqSearch, setRfqSearch] = useState('');
   const [rfqStatusFilter, setRfqStatusFilter] = useState<string>('all');
 
+  // Product table filtering & search
+  const [prodSearch, setProdSearch] = useState('');
+  const [prodPublishFilter, setProdPublishFilter] = useState<'all' | 'published' | 'archived'>('all');
+  const [prodCategoryFilter, setProdCategoryFilter] = useState<string>('all');
+
+  // Delete product confirmation modal
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
+  const [deleteConfirmLoading, setDeleteConfirmLoading] = useState(false);
+
   // Product modal
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
 
   // Form state for add/edit product
+  const [keySpecsText, setKeySpecsText] = useState('');
+  const [galleryImagesText, setGalleryImagesText] = useState('');
+  const [specificationsList, setSpecificationsList] = useState<Array<{ category: string; label: string; value: string }>>([]);
+
   const [prodForm, setProdForm] = useState<Partial<Product>>({
     name: '',
-    brand: 'Cisco',
+    brand: 'Linkbasic',
     model: '',
     sku: '',
-    categoryId: 'networking-equipment',
-    categoryName: 'Networking Equipment',
+    categoryId: 'structured-cabling',
+    categoryName: 'Structured Cabling',
     shortDescription: '',
     fullDescription: '',
-    pricePhp: 25000,
+    pricePhp: 4500,
+    salesUnit: 'box',
     stockStatus: 'In Stock',
-    warranty: '1-Year Warranty',
-    isFeatured: true,
+    leadTimeDays: 1,
+    warranty: '1-Year Limited Warranty',
+    isFeatured: false,
+    isPublished: true,
     mainImage: 'https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80',
-    keySpecs: ['Enterprise standard hardware', 'High reliability and throughput', 'Universal rackmount'],
-    specifications: [
-      { category: 'General', label: 'Form Factor', value: '1U Rackmount' },
-      { category: 'Power', label: 'Input Voltage', value: '220V AC 50/60Hz' }
-    ],
-    includedAccessories: ['Power cord', 'Mounting bracket screws', 'Quick Start Guide']
+    galleryImages: [],
+    keySpecs: [],
+    specifications: [],
+    includedAccessories: []
   });
 
   // Settings form state
@@ -126,46 +144,140 @@ export const AdminDashboardView: React.FC = () => {
   const totalRfqValue = rfqRequests.reduce((sum, r) => sum + (r.totalEstimatedPhp || 0), 0);
   const pendingRfqsCount = rfqRequests.filter(r => r.status === 'New' || r.status === 'Under Review').length;
   const inStockCount = products.filter(p => p.stockStatus === 'In Stock').length;
+  const publishedProductsCount = products.filter(p => p.isPublished !== false).length;
+  const archivedProductsCount = products.filter(p => p.isPublished === false).length;
+
+  // Filtered Products for Admin Table
+  const filteredAdminProducts = products.filter(prod => {
+    if (prodPublishFilter === 'published' && prod.isPublished === false) return false;
+    if (prodPublishFilter === 'archived' && prod.isPublished !== false) return false;
+    if (prodCategoryFilter !== 'all' && prod.categoryId !== prodCategoryFilter) return false;
+    if (prodSearch.trim()) {
+      const q = prodSearch.toLowerCase();
+      const matchName = prod.name.toLowerCase().includes(q);
+      const matchSku = prod.sku.toLowerCase().includes(q);
+      const matchBrand = (prod.brand || '').toLowerCase().includes(q);
+      const matchModel = (prod.model || '').toLowerCase().includes(q);
+      if (!matchName && !matchSku && !matchBrand && !matchModel) return false;
+    }
+    return true;
+  });
 
   const handleOpenAddProduct = () => {
     setEditingProduct(null);
     setProdForm({
       name: '',
-      brand: 'Cisco',
+      brand: 'Linkbasic',
       model: '',
       sku: `ZEZ-${Math.floor(1000 + Math.random() * 9000)}`,
-      categoryId: 'networking-equipment',
-      categoryName: 'Networking Equipment',
+      categoryId: 'structured-cabling',
+      categoryName: 'Structured Cabling',
       shortDescription: '',
       fullDescription: '',
-      pricePhp: 35000,
+      pricePhp: 5500,
+      salesUnit: 'box',
       stockStatus: 'In Stock',
-      warranty: '2-Year Authorized Warranty',
+      leadTimeDays: 1,
+      warranty: '1-Year Limited Warranty',
       isFeatured: false,
+      isPublished: true,
       mainImage: 'https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80',
       galleryImages: [],
-      keySpecs: ['Enterprise Grade Reliability', 'Gigabit Connectivity', 'Rackmount Ready'],
+      keySpecs: ['Enterprise Grade Reliability', 'Standard Compliant', 'Certified Performance'],
       specifications: [
-        { category: 'Networking', label: 'Form Factor', value: '1U 19-inch standard' },
-        { category: 'Power', label: 'Power Supply', value: '100-240V AC' }
+        { category: 'Mechanical', label: 'Material', value: 'High-grade copper / steel' },
+        { category: 'Compliance', label: 'Certifications', value: 'ISO/IEC, RoHS compliant' }
       ],
-      includedAccessories: ['Power cord', 'Mounting brackets']
+      includedAccessories: ['Installation accessories', 'Instruction sheet']
     });
+    setKeySpecsText('Enterprise Grade Reliability\nStandard Compliant\nCertified Performance');
+    setGalleryImagesText('');
+    setSpecificationsList([
+      { category: 'Mechanical', label: 'Material', value: 'High-grade copper / steel' },
+      { category: 'Compliance', label: 'Certifications', value: 'ISO/IEC, RoHS compliant' }
+    ]);
     setProdModalError(null);
     setProductModalOpen(true);
   };
 
   const handleOpenEditProduct = (prod: Product) => {
     setEditingProduct(prod);
-    setProdForm(prod);
+    setProdForm({
+      ...prod,
+      isPublished: prod.isPublished !== false
+    });
+    setKeySpecsText((prod.keySpecs || []).join('\n'));
+    setGalleryImagesText((prod.galleryImages || []).filter(img => img !== prod.mainImage).join('\n'));
+    setSpecificationsList(prod.specifications && prod.specifications.length > 0 ? [...prod.specifications] : [
+      { category: 'General', label: 'Brand & Origin', value: prod.brand }
+    ]);
     setProdModalError(null);
     setProductModalOpen(true);
   };
 
+  const handleTogglePublish = async (prod: Product) => {
+    setTableActionError(null);
+    const res = await togglePublishProduct(prod.id);
+    if (!res.success) {
+      setTableActionError(res.error || `Failed to update status for "${prod.name}".`);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!productToDelete) return;
+    setDeleteConfirmLoading(true);
+    setTableActionError(null);
+    const res = await deleteProduct(productToDelete.id);
+    setDeleteConfirmLoading(false);
+    if (!res.success) {
+      setTableActionError(res.error || `Failed to delete "${productToDelete.name}".`);
+    } else {
+      setProductToDelete(null);
+    }
+  };
+
+  const handleArchiveInsteadOfDelete = async () => {
+    if (!productToDelete) return;
+    setDeleteConfirmLoading(true);
+    setTableActionError(null);
+    const res = await updateProduct({ ...productToDelete, isPublished: false });
+    setDeleteConfirmLoading(false);
+    if (!res.success) {
+      setTableActionError(res.error || `Failed to archive "${productToDelete.name}".`);
+    } else {
+      setProductToDelete(null);
+    }
+  };
+
+  const handleAddSpecRow = () => {
+    setSpecificationsList(prev => [...prev, { category: 'General', label: '', value: '' }]);
+  };
+
+  const handleRemoveSpecRow = (index: number) => {
+    setSpecificationsList(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const handleUpdateSpecRow = (index: number, field: 'category' | 'label' | 'value', value: string) => {
+    setSpecificationsList(prev => prev.map((spec, i) => i === index ? { ...spec, [field]: value } : spec));
+  };
+
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!prodForm.name || !prodForm.sku) {
-      setProdModalError('Product Name and SKU are mandatory fields.');
+    const trimmedName = prodForm.name?.trim() || '';
+    const trimmedSku = prodForm.sku?.trim() || '';
+
+    if (!trimmedName || !trimmedSku) {
+      setProdModalError('Product Title and SKU are mandatory fields.');
+      return;
+    }
+
+    // Client-side duplicate SKU check against other items
+    const duplicateSku = products.find(
+      p => (!editingProduct || p.id !== editingProduct.id) &&
+           p.sku?.trim().toLowerCase() === trimmedSku.toLowerCase()
+    );
+    if (duplicateSku) {
+      setProdModalError(`Duplicate SKU: The SKU "${trimmedSku}" is already used by "${duplicateSku.name}". Each product must have a unique SKU.`);
       return;
     }
 
@@ -173,14 +285,37 @@ export const AdminDashboardView: React.FC = () => {
     setProdModalError(null);
 
     const cat = categories.find(c => c.id === prodForm.categoryId);
-    const categoryName = cat ? cat.name : 'Networking Equipment';
+    const categoryName = cat ? cat.name : (prodForm.categoryName || 'General Equipment');
+
+    // Parse multiline text inputs
+    const parsedKeySpecs = keySpecsText
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    const parsedAdditionalGalleries = galleryImagesText
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    const mainImg = prodForm.mainImage?.trim() || 'https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80';
+    const combinedGallery = Array.from(new Set([mainImg, ...parsedAdditionalGalleries]));
+
+    const validSpecs = specificationsList.filter(s => s.label.trim() && s.value.trim());
 
     try {
       if (editingProduct) {
         const res = await updateProduct({
           ...editingProduct,
           ...prodForm,
-          categoryName
+          name: trimmedName,
+          sku: trimmedSku,
+          categoryName,
+          mainImage: mainImg,
+          galleryImages: combinedGallery,
+          keySpecs: parsedKeySpecs,
+          specifications: validSpecs,
+          isPublished: prodForm.isPublished !== false
         } as Product);
         if (!res.success) {
           setProdModalError(res.error || 'Failed to update product in database.');
@@ -190,8 +325,14 @@ export const AdminDashboardView: React.FC = () => {
       } else {
         const res = await addProduct({
           ...prodForm,
+          name: trimmedName,
+          sku: trimmedSku,
           categoryName,
-          galleryImages: prodForm.galleryImages && prodForm.galleryImages.length > 0 ? prodForm.galleryImages : [prodForm.mainImage || '']
+          mainImage: mainImg,
+          galleryImages: combinedGallery,
+          keySpecs: parsedKeySpecs,
+          specifications: validSpecs,
+          isPublished: prodForm.isPublished !== false
         } as any);
         if (!res.success) {
           setProdModalError(res.error || 'Failed to save product in database.');
@@ -204,17 +345,6 @@ export const AdminDashboardView: React.FC = () => {
       setProdModalError(err.message || 'An unexpected error occurred while saving product.');
     } finally {
       setProdModalLoading(false);
-    }
-  };
-
-  const handleDeleteProduct = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to permanently delete "${name}" from the catalog? This action will remove it from the Supabase database.`)) {
-      return;
-    }
-    setTableActionError(null);
-    const res = await deleteProduct(id);
-    if (!res.success) {
-      setTableActionError(res.error || `Failed to delete "${name}". Please check database connection.`);
     }
   };
 
@@ -802,21 +932,81 @@ export const AdminDashboardView: React.FC = () => {
             </div>
           )}
 
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
               <h2 className="text-base font-bold text-[#292F36]">Hardware Catalog & Inventory</h2>
               <p className="text-xs text-gray-500">
-                Manage all {products.length} products, SRP prices, technical specs, and stock availability.
+                Manage all {products.length} products ({publishedProductsCount} published, {archivedProductsCount} archived), SRP prices, technical specs, and stock availability.
               </p>
             </div>
 
             <button
               onClick={handleOpenAddProduct}
-              className="px-4 py-2 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm transition-colors"
+              className="px-4 py-2 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer shrink-0"
             >
               <Plus className="w-4 h-4" />
               <span>Add New Equipment</span>
             </button>
+          </div>
+
+          {/* Search & Publication Filters */}
+          <div className="bg-white rounded-xl border border-gray-200 p-3 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 flex-1">
+              <div className="relative flex-1 max-w-sm">
+                <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Filter by title, SKU, brand, or model..."
+                  value={prodSearch}
+                  onChange={(e) => setProdSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:border-[#B5121B]"
+                />
+              </div>
+
+              <select
+                value={prodCategoryFilter}
+                onChange={(e) => setProdCategoryFilter(e.target.value)}
+                className="py-1.5 px-2.5 border border-gray-300 rounded-lg text-xs bg-white text-gray-700"
+              >
+                <option value="all">All Categories ({categories.length})</option>
+                {categories.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg">
+              <button
+                onClick={() => setProdPublishFilter('all')}
+                className={`px-3 py-1 rounded text-xs font-bold transition-colors cursor-pointer ${
+                  prodPublishFilter === 'all'
+                    ? 'bg-white text-gray-900 shadow-2xs'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                All ({products.length})
+              </button>
+              <button
+                onClick={() => setProdPublishFilter('published')}
+                className={`px-3 py-1 rounded text-xs font-bold transition-colors cursor-pointer ${
+                  prodPublishFilter === 'published'
+                    ? 'bg-white text-emerald-800 shadow-2xs'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Published ({publishedProductsCount})
+              </button>
+              <button
+                onClick={() => setProdPublishFilter('archived')}
+                className={`px-3 py-1 rounded text-xs font-bold transition-colors cursor-pointer ${
+                  prodPublishFilter === 'archived'
+                    ? 'bg-white text-amber-800 shadow-2xs'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                Archived ({archivedProductsCount})
+              </button>
+            </div>
           </div>
 
           {/* Action error banner */}
@@ -847,89 +1037,138 @@ export const AdminDashboardView: React.FC = () => {
                     <th className="py-3 px-3">SKU / Model</th>
                     <th className="py-3 px-3 text-right">Price (PHP)</th>
                     <th className="py-3 px-3 text-center">Stock Status</th>
+                    <th className="py-3 px-3 text-center">Visibility</th>
                     <th className="py-3 px-3 text-center">Featured</th>
                     <th className="py-3 px-3 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {products.map((prod) => (
-                    <tr key={prod.id} className="hover:bg-gray-50/50">
-                      <td className="py-3 px-3">
-                        <div className="flex items-center gap-2.5">
-                          <img
-                            src={prod.mainImage}
-                            alt={prod.name}
-                            className="w-10 h-10 object-contain rounded border border-gray-200 bg-white shrink-0"
-                          />
-                          <div className="min-w-0">
-                            <span 
-                              onClick={() => navigateToProduct(prod.id)}
-                              className="font-bold text-gray-900 hover:text-[#B5121B] cursor-pointer line-clamp-1"
-                            >
-                              {prod.name}
-                            </span>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-3 font-semibold text-[#B5121B]">{getDisplayBrand(prod.brand)}</td>
-                      <td className="py-3 px-3 text-gray-600">{prod.categoryName}</td>
-                      <td className="py-3 px-3">
-                        <div className="font-mono text-[11px] font-semibold text-gray-800">{prod.sku}</div>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          {supabaseSeedPending ? (
-                            <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200" title="Serving from local consignment catalog (execute consignment_seed.sql to persist in database)">
-                              Consignment
-                            </span>
-                          ) : (
-                            <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200" title="Authoritative record in Supabase database">
-                              Supabase Live
-                            </span>
-                          )}
-                          <span className="text-[10px] text-gray-400 font-mono truncate max-w-[100px]">{prod.model}</span>
-                        </div>
-                      </td>
-                      <td className="py-3 px-3 text-right font-mono font-bold text-gray-900">
-                        {prod.pricePhp ? (
-                          <>
-                            ₱{prod.pricePhp.toLocaleString()}
-                            {getProductSalesUnit(prod) && <span className="text-[10px] text-gray-400 font-sans ml-1">/ {getProductSalesUnit(prod)}</span>}
-                          </>
-                        ) : (
-                          'Project Pricing'
-                        )}
-                      </td>
-                      <td className="py-3 px-3 text-center">
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          {prod.stockStatus}
-                        </span>
-                      </td>
-                      <td className="py-3 px-3 text-center">
-                        {prod.isFeatured ? (
-                          <span className="text-amber-500 font-bold">★ Yes</span>
-                        ) : (
-                          <span className="text-gray-400">No</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-3 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            onClick={() => handleOpenEditProduct(prod)}
-                            className="p-1.5 text-gray-600 hover:text-[#B5121B] hover:bg-gray-100 rounded cursor-pointer"
-                            title="Edit Product"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteProduct(prod.id, prod.name)}
-                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded cursor-pointer"
-                            title="Delete Product"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
+                  {filteredAdminProducts.length === 0 ? (
+                    <tr>
+                      <td colSpan={9} className="py-12 text-center text-gray-500">
+                        <Package className="w-8 h-8 text-gray-300 mx-auto mb-2" />
+                        <p className="font-semibold text-gray-700">No products match your current filter</p>
+                        <p className="text-[11px] text-gray-400 mt-1">Try resetting the search keyword or status tab</p>
+                        <button
+                          onClick={() => {
+                            setProdSearch('');
+                            setProdPublishFilter('all');
+                            setProdCategoryFilter('all');
+                          }}
+                          className="mt-3 px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded text-xs font-bold cursor-pointer"
+                        >
+                          Clear Filters
+                        </button>
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    filteredAdminProducts.map((prod) => (
+                      <tr key={prod.id} className={`hover:bg-gray-50/50 ${prod.isPublished === false ? 'bg-gray-50/70' : ''}`}>
+                        <td className="py-3 px-3">
+                          <div className="flex items-center gap-2.5">
+                            <img
+                              src={prod.mainImage}
+                              alt={prod.name}
+                              className="w-10 h-10 object-contain rounded border border-gray-200 bg-white shrink-0"
+                            />
+                            <div className="min-w-0">
+                              <span 
+                                onClick={() => navigateToProduct(prod.id)}
+                                className="font-bold text-gray-900 hover:text-[#B5121B] cursor-pointer line-clamp-1"
+                              >
+                                {prod.name}
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 font-semibold text-[#B5121B]">{getDisplayBrand(prod.brand)}</td>
+                        <td className="py-3 px-3 text-gray-600">{prod.categoryName}</td>
+                        <td className="py-3 px-3">
+                          <div className="font-mono text-[11px] font-semibold text-gray-800">{prod.sku}</div>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            {supabaseSeedPending ? (
+                              <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200" title="Serving from local consignment catalog (execute consignment_seed.sql to persist in database)">
+                                Consignment
+                              </span>
+                            ) : (
+                              <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200" title="Authoritative record in Supabase database">
+                                Supabase Live
+                              </span>
+                            )}
+                            <span className="text-[10px] text-gray-400 font-mono truncate max-w-[100px]">{prod.model}</span>
+                          </div>
+                        </td>
+                        <td className="py-3 px-3 text-right font-mono font-bold text-gray-900">
+                          {prod.pricePhp ? (
+                            <>
+                              ₱{prod.pricePhp.toLocaleString()}
+                              {getProductSalesUnit(prod) && <span className="text-[10px] text-gray-400 font-sans ml-1">/ {getProductSalesUnit(prod)}</span>}
+                            </>
+                          ) : (
+                            'Project Pricing'
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            {prod.stockStatus}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          {prod.isPublished !== false ? (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-600" />
+                              Published
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                              <EyeOff className="w-2.5 h-2.5 text-amber-600" />
+                              Archived
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-center">
+                          {prod.isFeatured ? (
+                            <span className="text-amber-500 font-bold">★ Yes</span>
+                          ) : (
+                            <span className="text-gray-400">No</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleTogglePublish(prod)}
+                              className={`p-1.5 rounded cursor-pointer transition-colors ${
+                                prod.isPublished !== false 
+                                  ? 'text-gray-500 hover:text-amber-700 hover:bg-amber-50' 
+                                  : 'text-amber-700 hover:text-emerald-700 hover:bg-emerald-50'
+                              }`}
+                              title={prod.isPublished !== false ? 'Archive / Hide from public customers' : 'Publish / Show in storefront'}
+                            >
+                              {prod.isPublished !== false ? (
+                                <EyeOff className="w-3.5 h-3.5" />
+                              ) : (
+                                <Eye className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                            <button
+                              onClick={() => handleOpenEditProduct(prod)}
+                              className="p-1.5 text-gray-600 hover:text-[#B5121B] hover:bg-gray-100 rounded cursor-pointer"
+                              title="Edit Product"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setProductToDelete(prod)}
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-gray-100 rounded cursor-pointer"
+                              title="Delete Product"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -1099,28 +1338,39 @@ export const AdminDashboardView: React.FC = () => {
       {/* ADD / EDIT PRODUCT MODAL */}
       {productModalOpen && (
         <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 space-y-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-              <h3 className="font-bold text-base text-[#292F36]">
-                {editingProduct ? 'Edit Catalog Product' : 'Add New ICT Equipment'}
-              </h3>
-              <button onClick={() => setProductModalOpen(false)} className="text-gray-400 hover:text-gray-600">
+              <div>
+                <h3 className="font-bold text-base text-[#292F36]">
+                  {editingProduct ? `Edit Product: ${editingProduct.sku}` : 'Add New ICT Equipment'}
+                </h3>
+                <p className="text-[11px] text-gray-500">
+                  {editingProduct 
+                    ? 'Changes will be saved to Supabase and immediately reflected across the website.' 
+                    : 'Enter complete equipment details, pricing, and technical specifications.'}
+                </p>
+              </div>
+              <button 
+                onClick={() => setProductModalOpen(false)} 
+                className="text-gray-400 hover:text-gray-600 p-1 cursor-pointer"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveProduct} className="space-y-4 text-xs max-h-[75vh] overflow-y-auto pr-2">
+            <form onSubmit={handleSaveProduct} className="space-y-4 text-xs max-h-[78vh] overflow-y-auto pr-2">
               {prodModalError && (
                 <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 text-[#B5121B] shrink-0 mt-0.5" />
                   <div>
-                    <p className="font-bold">Database Error</p>
+                    <p className="font-bold">Cannot Save Product</p>
                     <p>{prodModalError}</p>
                   </div>
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
+              {/* Title & Brand */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="font-bold text-gray-700 block mb-1">Product Title *</label>
                   <input
@@ -1128,8 +1378,8 @@ export const AdminDashboardView: React.FC = () => {
                     type="text"
                     value={prodForm.name}
                     onChange={(e) => setProdForm({ ...prodForm, name: e.target.value })}
-                    placeholder="e.g. Cisco Catalyst 9200L 48-Port Switch"
-                    className="w-full p-2 border border-gray-300 rounded"
+                    placeholder="e.g. Cat5e UTP 4-Pair 24AWG Solid Cable (305m)"
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-[#B5121B]"
                   />
                 </div>
                 <div>
@@ -1139,13 +1389,14 @@ export const AdminDashboardView: React.FC = () => {
                     type="text"
                     value={prodForm.brand}
                     onChange={(e) => setProdForm({ ...prodForm, brand: e.target.value })}
-                    placeholder="e.g. Cisco, Ubiquiti, Hikvision"
-                    className="w-full p-2 border border-gray-300 rounded"
+                    placeholder="e.g. Linkbasic, Cisco, Ubiquiti"
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-[#B5121B]"
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              {/* Model, SKU & Category */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="font-bold text-gray-700 block mb-1">Model Number *</label>
                   <input
@@ -1153,26 +1404,46 @@ export const AdminDashboardView: React.FC = () => {
                     type="text"
                     value={prodForm.model}
                     onChange={(e) => setProdForm({ ...prodForm, model: e.target.value })}
-                    placeholder="e.g. C9200L-48P-4G"
-                    className="w-full p-2 border border-gray-300 rounded"
+                    placeholder="e.g. CLA04-UC5E-7035"
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-[#B5121B]"
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-gray-700 block mb-1">SKU *</label>
+                  <label className="font-bold text-gray-700 block mb-1">
+                    SKU * {products.some(p => (!editingProduct || p.id !== editingProduct.id) && p.sku?.trim().toLowerCase() === (prodForm.sku?.trim() || '').toLowerCase()) && (
+                      <span className="text-[10px] text-red-600 font-normal ml-1">Duplicate!</span>
+                    )}
+                  </label>
                   <input
                     required
                     type="text"
                     value={prodForm.sku}
                     onChange={(e) => setProdForm({ ...prodForm, sku: e.target.value })}
-                    className="w-full p-2 border border-gray-300 rounded font-mono"
+                    className={`w-full p-2.5 border rounded-lg font-mono focus:outline-none ${
+                      products.some(p => (!editingProduct || p.id !== editingProduct.id) && p.sku?.trim().toLowerCase() === (prodForm.sku?.trim() || '').toLowerCase())
+                        ? 'border-red-400 bg-red-50/30 text-red-900 focus:border-red-600'
+                        : 'border-gray-300 focus:border-[#B5121B]'
+                    }`}
                   />
+                  {products.some(p => (!editingProduct || p.id !== editingProduct.id) && p.sku?.trim().toLowerCase() === (prodForm.sku?.trim() || '').toLowerCase()) && (
+                    <p className="text-[10px] text-red-600 mt-1 font-semibold">
+                      This SKU is already used by another product.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="font-bold text-gray-700 block mb-1">Category *</label>
                   <select
                     value={prodForm.categoryId}
-                    onChange={(e) => setProdForm({ ...prodForm, categoryId: e.target.value })}
-                    className="w-full p-2 border border-gray-300 rounded"
+                    onChange={(e) => {
+                      const selCat = categories.find(c => c.id === e.target.value);
+                      setProdForm({ 
+                        ...prodForm, 
+                        categoryId: e.target.value,
+                        categoryName: selCat ? selCat.name : prodForm.categoryName
+                      });
+                    }}
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-[#B5121B] bg-white"
                   >
                     {categories.map((c) => (
                       <option key={c.id} value={c.id}>{c.name}</option>
@@ -1181,15 +1452,28 @@ export const AdminDashboardView: React.FC = () => {
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
+              {/* Price, Sales Unit, Stock Status, Lead Time */}
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                 <div>
-                  <label className="font-bold text-gray-700 block mb-1">Reference Price (PHP)</label>
+                  <label className="font-bold text-gray-700 block mb-1">SRP Price (PHP)</label>
                   <input
                     type="number"
-                    value={prodForm.pricePhp || ''}
-                    onChange={(e) => setProdForm({ ...prodForm, pricePhp: parseFloat(e.target.value) || 0 })}
-                    placeholder="e.g. 89500"
-                    className="w-full p-2 border border-gray-300 rounded font-mono"
+                    min="0"
+                    step="0.01"
+                    value={prodForm.pricePhp !== undefined ? prodForm.pricePhp : ''}
+                    onChange={(e) => setProdForm({ ...prodForm, pricePhp: e.target.value === '' ? undefined : parseFloat(e.target.value) })}
+                    placeholder="e.g. 5200"
+                    className="w-full p-2.5 border border-gray-300 rounded-lg font-mono focus:outline-none focus:border-[#B5121B]"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">Sales Unit</label>
+                  <input
+                    type="text"
+                    value={prodForm.salesUnit || ''}
+                    onChange={(e) => setProdForm({ ...prodForm, salesUnit: e.target.value })}
+                    placeholder="e.g. box, unit, roll"
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-[#B5121B]"
                   />
                 </div>
                 <div>
@@ -1197,7 +1481,7 @@ export const AdminDashboardView: React.FC = () => {
                   <select
                     value={prodForm.stockStatus}
                     onChange={(e) => setProdForm({ ...prodForm, stockStatus: e.target.value as StockStatus })}
-                    className="w-full p-2 border border-gray-300 rounded"
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-[#B5121B] bg-white"
                   >
                     <option value="In Stock">In Stock</option>
                     <option value="Pre-Order (5-7 Days)">Pre-Order (5-7 Days)</option>
@@ -1211,31 +1495,61 @@ export const AdminDashboardView: React.FC = () => {
                     type="text"
                     value={prodForm.warranty}
                     onChange={(e) => setProdForm({ ...prodForm, warranty: e.target.value })}
-                    placeholder="e.g. 3-Year Limited Lifetime"
-                    className="w-full p-2 border border-gray-300 rounded"
+                    placeholder="e.g. 1-Year Limited Warranty"
+                    className="w-full p-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-[#B5121B]"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="font-bold text-gray-700 block mb-1">Main Image URL</label>
-                <input
-                  type="url"
-                  value={prodForm.mainImage}
-                  onChange={(e) => setProdForm({ ...prodForm, mainImage: e.target.value })}
-                  placeholder="https://images.unsplash.com/..."
-                  className="w-full p-2 border border-gray-300 rounded"
-                />
+              {/* Images */}
+              <div className="space-y-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex items-start gap-4">
+                  <div className="flex-1">
+                    <label className="font-bold text-gray-700 block mb-1">Main Product Photograph URL *</label>
+                    <input
+                      type="url"
+                      required
+                      value={prodForm.mainImage}
+                      onChange={(e) => setProdForm({ ...prodForm, mainImage: e.target.value })}
+                      placeholder="https://... image URL"
+                      className="w-full p-2 border border-gray-300 rounded bg-white focus:outline-none focus:border-[#B5121B]"
+                    />
+                  </div>
+                  {prodForm.mainImage && (
+                    <div className="w-14 h-14 rounded border border-gray-200 bg-white overflow-hidden shrink-0 flex items-center justify-center p-1">
+                      <img
+                        src={prodForm.mainImage}
+                        alt="Preview"
+                        className="w-full h-full object-contain"
+                        onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div>
+                  <label className="font-bold text-gray-700 block mb-1">
+                    Additional Gallery Image URLs (one URL per line)
+                  </label>
+                  <textarea
+                    rows={2}
+                    value={galleryImagesText}
+                    onChange={(e) => setGalleryImagesText(e.target.value)}
+                    placeholder="https://example.com/photo2.jpg&#10;https://example.com/photo3.jpg"
+                    className="w-full p-2 border border-gray-300 rounded bg-white font-mono text-[11px] focus:outline-none focus:border-[#B5121B]"
+                  />
+                </div>
               </div>
 
+              {/* Descriptions */}
               <div>
-                <label className="font-bold text-gray-700 block mb-1">Short Description</label>
+                <label className="font-bold text-gray-700 block mb-1">Short Description (1 sentence)</label>
                 <input
                   type="text"
                   value={prodForm.shortDescription}
                   onChange={(e) => setProdForm({ ...prodForm, shortDescription: e.target.value })}
-                  placeholder="Brief 1-sentence product summary"
-                  className="w-full p-2 border border-gray-300 rounded"
+                  placeholder="e.g. Cat5e UTP 4-Pair Solid Copper Lan Cable in 305m easy-pull box."
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-[#B5121B]"
                 />
               </div>
 
@@ -1245,48 +1559,221 @@ export const AdminDashboardView: React.FC = () => {
                   rows={3}
                   value={prodForm.fullDescription}
                   onChange={(e) => setProdForm({ ...prodForm, fullDescription: e.target.value })}
-                  placeholder="Comprehensive technical breakdown and enterprise applications"
-                  className="w-full p-2 border border-gray-300 rounded"
+                  placeholder="Detailed technical specifications, engineering compliance, and deployment applications..."
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-[#B5121B]"
                 />
               </div>
 
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="featuredToggle"
-                  checked={prodForm.isFeatured}
-                  onChange={(e) => setProdForm({ ...prodForm, isFeatured: e.target.checked })}
-                  className="rounded text-[#B5121B]"
-                />
-                <label htmlFor="featuredToggle" className="font-semibold text-gray-700">
-                  Feature this item on homepage showcase
+              {/* Key Specs */}
+              <div>
+                <label className="font-bold text-gray-700 block mb-1">
+                  Key Specifications Bullet Points (one item per line)
                 </label>
+                <textarea
+                  rows={3}
+                  value={keySpecsText}
+                  onChange={(e) => setKeySpecsText(e.target.value)}
+                  placeholder="Cat5e 4-pair unshielded twisted pair&#10;24 AWG solid bare copper conductor&#10;305m pull-box packaging"
+                  className="w-full p-2.5 border border-gray-300 rounded-lg focus:outline-none focus:border-[#B5121B]"
+                />
               </div>
 
-              <div className="pt-3 border-t border-gray-200 flex justify-end gap-2">
+              {/* Structured Specifications Table */}
+              <div className="space-y-2 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-gray-700">Detailed Technical Specifications</label>
+                  <button
+                    type="button"
+                    onClick={handleAddSpecRow}
+                    className="text-[11px] text-[#B5121B] hover:text-[#8F1018] font-bold flex items-center gap-1 cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Spec Row</span>
+                  </button>
+                </div>
+
+                {specificationsList.length === 0 ? (
+                  <p className="text-gray-400 italic text-[11px]">No structured specifications added yet.</p>
+                ) : (
+                  <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                    {specificationsList.map((spec, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          placeholder="Category (e.g. Electrical)"
+                          value={spec.category}
+                          onChange={(e) => handleUpdateSpecRow(idx, 'category', e.target.value)}
+                          className="w-1/3 p-1.5 border border-gray-300 rounded bg-white text-xs"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Label (e.g. Conductor)"
+                          value={spec.label}
+                          onChange={(e) => handleUpdateSpecRow(idx, 'label', e.target.value)}
+                          className="w-1/3 p-1.5 border border-gray-300 rounded bg-white text-xs"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Value (e.g. 24AWG Copper)"
+                          value={spec.value}
+                          onChange={(e) => handleUpdateSpecRow(idx, 'value', e.target.value)}
+                          className="w-1/3 p-1.5 border border-gray-300 rounded bg-white text-xs"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveSpecRow(idx)}
+                          className="text-gray-400 hover:text-red-600 p-1 cursor-pointer"
+                          title="Remove row"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Publication & Showcase Toggles */}
+              <div className="space-y-3 pt-2 border-t border-gray-200">
+                <div className="flex items-start gap-2.5 p-3 rounded-lg bg-emerald-50/50 border border-emerald-200">
+                  <input
+                    type="checkbox"
+                    id="publishedToggle"
+                    checked={prodForm.isPublished !== false}
+                    onChange={(e) => setProdForm({ ...prodForm, isPublished: e.target.checked })}
+                    className="rounded text-[#B5121B] mt-0.5"
+                  />
+                  <div>
+                    <label htmlFor="publishedToggle" className="font-bold text-gray-900 cursor-pointer block">
+                      Published to Public Storefront
+                    </label>
+                    <p className="text-[11px] text-gray-500">
+                      When checked, visitors can search, view, and add this product to quotation requests. When unchecked, this item is archived and hidden from customers without permanent deletion.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 px-3">
+                  <input
+                    type="checkbox"
+                    id="featuredToggle"
+                    checked={prodForm.isFeatured}
+                    onChange={(e) => setProdForm({ ...prodForm, isFeatured: e.target.checked })}
+                    className="rounded text-[#B5121B]"
+                  />
+                  <label htmlFor="featuredToggle" className="font-semibold text-gray-700 cursor-pointer">
+                    Feature this item on homepage showcase
+                  </label>
+                </div>
+              </div>
+
+              {/* Submit Buttons */}
+              <div className="pt-3 border-t border-gray-200 flex items-center justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setProductModalOpen(false)}
-                  className="px-4 py-2 border border-gray-300 rounded text-gray-700 font-bold"
+                  className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 font-bold hover:bg-gray-50 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={prodModalLoading}
-                  className="px-5 py-2 bg-[#B5121B] hover:bg-[#8F1018] text-white font-bold rounded flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+                  className="px-5 py-2 bg-[#B5121B] hover:bg-[#8F1018] text-white font-bold rounded-lg flex items-center gap-2 disabled:opacity-50 cursor-pointer shadow-sm transition-colors"
                 >
                   {prodModalLoading ? (
                     <>
                       <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                      <span>Saving to Supabase...</span>
+                      <span>Persisting to Supabase...</span>
                     </>
                   ) : (
-                    <span>Save Product to Catalog</span>
+                    <span>{editingProduct ? 'Save Changes' : 'Create & Persist Equipment'}</span>
                   )}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE PRODUCT CONFIRMATION MODAL */}
+      {productToDelete && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center shrink-0 text-red-600">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div className="space-y-1">
+                <h3 className="font-bold text-base text-[#292F36]">Confirm Product Deletion</h3>
+                <p className="text-xs text-gray-500">
+                  Are you sure you want to permanently delete this product from the catalog?
+                </p>
+              </div>
+            </div>
+
+            {/* Product Summary Card */}
+            <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 flex items-center gap-3">
+              <img
+                src={productToDelete.mainImage}
+                alt={productToDelete.name}
+                className="w-12 h-12 object-contain bg-white rounded border border-gray-200 p-0.5 shrink-0"
+              />
+              <div className="min-w-0 text-xs">
+                <p className="font-bold text-gray-900 truncate">{productToDelete.name}</p>
+                <p className="text-gray-500 font-mono text-[11px]">{productToDelete.sku} • {productToDelete.brand}</p>
+                {productToDelete.pricePhp && (
+                  <p className="text-[#B5121B] font-bold font-mono text-[11px]">₱{productToDelete.pricePhp.toLocaleString()}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="p-3 bg-amber-50 rounded-lg border border-amber-200 text-xs text-amber-900 space-y-1">
+              <p className="font-bold flex items-center gap-1.5 text-amber-950">
+                <AlertCircle className="w-4 h-4 text-amber-700 shrink-0" />
+                Permanent Database Removal
+              </p>
+              <p className="text-[11px] text-amber-800">
+                This will delete the row from your Supabase PostgreSQL database. If you only want to temporarily hide it from customers, you can choose <strong>Archive / Hide</strong> instead.
+              </p>
+            </div>
+
+            <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-end gap-2 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => setProductToDelete(null)}
+                disabled={deleteConfirmLoading}
+                className="px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleArchiveInsteadOfDelete}
+                disabled={deleteConfirmLoading}
+                className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg cursor-pointer transition-colors"
+              >
+                Archive Instead
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                disabled={deleteConfirmLoading}
+                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+              >
+                {deleteConfirmLoading ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete Permanently</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

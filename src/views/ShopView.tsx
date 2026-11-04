@@ -40,9 +40,14 @@ export const ShopView: React.FC = () => {
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
   const [displayCount, setDisplayCount] = useState(48);
 
-  // Filter products based on active filters
+  // Filter products based on active filters (only published items visible to customers)
   const filteredProducts = useMemo(() => {
     return products.filter((product) => {
+      // Hide archived / unpublished products from public catalog
+      if (product.isPublished === false) {
+        return false;
+      }
+
       // Search query
       if (filters.searchQuery.trim()) {
         const query = filters.searchQuery.toLowerCase();
