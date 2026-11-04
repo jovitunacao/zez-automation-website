@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   ArrowLeft, 
   ShoppingCart, 
@@ -41,6 +41,13 @@ export const ProductDetailView: React.FC = () => {
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [infoSubmitted, setInfoSubmitted] = useState(false);
   const [datasheetNotice, setDatasheetNotice] = useState(false);
+
+  // Sync selected photo when product changes
+  useEffect(() => {
+    if (product) {
+      setSelectedImage(product.mainImage);
+    }
+  }, [product?.id]);
 
   if (!product) {
     return (

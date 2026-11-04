@@ -59,6 +59,9 @@ interface AppContextType {
   categories: ProductCategory[];
   brands: Brand[];
   productsLoading: boolean;
+  productsError: string | null;
+  supabaseSeedPending: boolean;
+  databaseProductCount: number;
   refreshProducts: () => Promise<void>;
   addProduct: (product: Omit<Product, 'id'>) => Promise<{ success: boolean; error?: string }>;
   updateProduct: (product: Product) => Promise<{ success: boolean; error?: string }>;
@@ -241,18 +244,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const stored = localStorage.getItem('zez_products');
       if (stored) {
         const parsed = JSON.parse(stored);
-        // Only keep stored items if they do not contain legacy fictitious mock products
-        if (Array.isArray(parsed) && parsed.length > 0 && !parsed.some(p => p.id?.startsWith('prod-'))) {
+        // Only keep stored items if they contain the verified 46 consignment items and no legacy mock
+        if (
+          Array.isArray(parsed) && 
+          parsed.length >= 46 && 
+          parsed.some(p => p.id?.startsWith('consignment-') || p.sku === 'CLA04-UC5E-7035') &&
+          !parsed.some(p => p.id?.startsWith('prod-'))
+        ) {
           return parsed;
+        } else {
+          // Clear outdated or legacy storage
+          localStorage.removeItem('zez_products');
         }
       }
     } catch (e) {
       console.error(e);
+      try { localStorage.removeItem('zez_products'); } catch (_) {}
     }
     return CONSIGNMENT_PRODUCTS;
   });
 
   const [productsLoading, setProductsLoading] = useState<boolean>(false);
+  const [productsError, setProductsError] = useState<string | null>(null);
+  const [supabaseSeedPending, setSupabaseSeedPending] = useState<boolean>(false);
+  const [databaseProductCount, setDatabaseProductCount] = useState<number>(0);
   const [categories] = useState<ProductCategory[]>(CATEGORIES);
   const [brands] = useState<Brand[]>(BRANDS);
 
@@ -327,15 +342,61 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Load products from Supabase on initial application load
   const refreshProducts = async () => {
-    if (!isSupabaseConfigured()) return;
+    if (!isSupabaseConfigured()) {
+      setProductsLoading(false);
+      setProductsError(null);
+      setSupabaseSeedPending(false);
+      setDatabaseProductCount(0);
+      return;
+    }
+
     setProductsLoading(true);
+    setProductsError(null);
+
     try {
       const result = await fetchProductsFromSupabase();
-      if (result.data && result.data.length > 0) {
-        setProducts(result.data);
+
+      if (result.error) {
+        setProductsError(result.error);
+        console.warn('[ZEZ App] Supabase products query error:', result.error);
+        // Do NOT wipe out products; keep CONSIGNMENT_PRODUCTS active
+        return;
       }
-    } catch (err) {
+
+      if (!result.data || result.data.length === 0) {
+        // Database connected, but products table has 0 records!
+        setSupabaseSeedPending(true);
+        setDatabaseProductCount(0);
+        console.warn('[ZEZ App] Supabase products table is empty. Consignment seed pending: run supabase/consignment_seed.sql.');
+        setProducts(CONSIGNMENT_PRODUCTS);
+        return;
+      }
+
+      const dbProducts = result.data;
+      setDatabaseProductCount(dbProducts.length);
+
+      const hasConsignmentItems = dbProducts.some(p => 
+        p.id?.startsWith('consignment-') || 
+        p.sku === 'CLA04-UC5E-7035' || 
+        p.sku === 'CLA04-UC6-5015'
+      );
+      const isLegacyOnly = dbProducts.every(p => p.id?.startsWith('prod-'));
+
+      if (hasConsignmentItems) {
+        // Supabase has the consignment products! It is authoritative.
+        setProducts(dbProducts);
+        setSupabaseSeedPending(false);
+        setProductsError(null);
+      } else if (isLegacyOnly || !hasConsignmentItems) {
+        // Database has records, but they are legacy sample products from schema.sql, NOT the 46 consignment items!
+        setSupabaseSeedPending(true);
+        console.warn(`[ZEZ App] Supabase contains ${dbProducts.length} legacy sample products. Consignment seed pending: run supabase/consignment_seed.sql.`);
+        // Crucial: do NOT overwrite the 46 consignment products with the 12 old sample items!
+        setProducts(CONSIGNMENT_PRODUCTS);
+      }
+    } catch (err: any) {
       console.warn('[ZEZ App] Failed to load products from database:', err);
+      setProductsError(err?.message || 'Failed to connect to Supabase database.');
     } finally {
       setProductsLoading(false);
     }
@@ -384,7 +445,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Save to LocalStorage for offline resilience
   useEffect(() => {
     try {
-      localStorage.setItem('zez_products', JSON.stringify(products));
+      if (
+        products.length >= 46 && 
+        products.some(p => p.id?.startsWith('consignment-') || p.sku === 'CLA04-UC5E-7035') &&
+        !products.some(p => p.id?.startsWith('prod-'))
+      ) {
+        localStorage.setItem('zez_products', JSON.stringify(products));
+      }
     } catch (e) {
       console.error(e);
     }
@@ -694,6 +761,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         categories,
         brands,
         productsLoading,
+        productsError,
+        supabaseSeedPending,
+        databaseProductCount,
         refreshProducts,
         addProduct,
         updateProduct,

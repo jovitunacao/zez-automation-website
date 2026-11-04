@@ -36,7 +36,7 @@ export const CATEGORIES: ProductCategory[] = [
     name: 'UPS & Power Solutions',
     slug: 'ups-power-solutions',
     description: 'Online double-conversion UPS, rackmount power distribution units (PDU), and surge protection systems.',
-    itemCount: 26,
+    itemCount: 2,
     imageUrl: 'https://images.unsplash.com/photo-1581092335397-9583fe92d232?auto=format&fit=crop&w=800&q=80',
     iconName: 'Zap',
     subcategories: ['On-Line Double Conversion UPS', 'Line-Interactive UPS', 'Rackmount PDUs', 'Automatic Transfer Switches', 'Replacement Battery Packs']
@@ -46,7 +46,7 @@ export const CATEGORIES: ProductCategory[] = [
     name: 'Structured Cabling',
     slug: 'structured-cabling',
     description: 'Certified Cat6 / Cat6A UTP cabling, patch cords, patch panels, keystone jacks, and fiber optic trunks.',
-    itemCount: 38,
+    itemCount: 36,
     imageUrl: 'https://images.unsplash.com/photo-1544716278-ca5e3f4abd8c?auto=format&fit=crop&w=800&q=80',
     iconName: 'Cable',
     subcategories: ['Cat6 UTP Cable 305m', 'Cat6A Shielded Cable', '24/48-Port Patch Panels', 'Fiber Optic Patch Cords', 'Modular Keystone Jacks']
@@ -56,7 +56,7 @@ export const CATEGORIES: ProductCategory[] = [
     name: 'Racks & Cabinets',
     slug: 'racks-cabinets',
     description: 'Data center server racks, wall-mount network enclosures, cable management trays, and cooling fans.',
-    itemCount: 22,
+    itemCount: 8,
     imageUrl: 'https://images.unsplash.com/photo-1544197150-199123fa6d8d?auto=format&fit=crop&w=800&q=80',
     iconName: 'Layers',
     subcategories: ['42U Server Rack Cabinets', '24U Enclosures', '6U/9U/12U Wall Mount Racks', 'Horizontal Cable Managers', 'Rackmount Fan Trays']

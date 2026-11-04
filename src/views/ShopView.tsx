@@ -11,7 +11,10 @@ import {
   Scale, 
   Check, 
   ChevronDown,
-  SlidersHorizontal
+  SlidersHorizontal,
+  AlertCircle,
+  RefreshCw,
+  Package
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Product } from '../types';
@@ -22,6 +25,9 @@ export const ShopView: React.FC = () => {
     products, 
     categories, 
     brands, 
+    productsLoading,
+    productsError,
+    refreshProducts,
     filters, 
     setFilters, 
     resetFilters, 
@@ -32,7 +38,7 @@ export const ShopView: React.FC = () => {
 
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
-  const [displayCount, setDisplayCount] = useState(12);
+  const [displayCount, setDisplayCount] = useState(48);
 
   // Filter products based on active filters
   const filteredProducts = useMemo(() => {
@@ -496,7 +502,40 @@ export const ShopView: React.FC = () => {
           )}
 
           {/* Products Container */}
-          {sortedProducts.length === 0 ? (
+          {productsError && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-xs text-amber-900 flex items-start justify-between gap-3 shadow-2xs">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <span className="font-bold">Database Synchronization Notice: </span>
+                  <span>{productsError}. Currently displaying verified consignment inventory ({products.length} models).</span>
+                </div>
+              </div>
+              <button
+                onClick={() => refreshProducts()}
+                className="shrink-0 px-3 py-1 bg-amber-100 hover:bg-amber-200 text-amber-900 font-bold rounded flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Retry Sync</span>
+              </button>
+            </div>
+          )}
+
+          {/* Loading Skeleton if products are loading and empty */}
+          {productsLoading && products.length === 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-5">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="bg-white rounded-xl border border-gray-200 p-5 space-y-4 animate-pulse">
+                  <div className="h-44 bg-gray-100 rounded-lg flex items-center justify-center text-gray-300">
+                    <Package className="w-8 h-8 opacity-40" />
+                  </div>
+                  <div className="h-4 bg-gray-200 rounded w-3/4" />
+                  <div className="h-3 bg-gray-100 rounded w-1/2" />
+                  <div className="h-8 bg-gray-100 rounded-lg" />
+                </div>
+              ))}
+            </div>
+          ) : sortedProducts.length === 0 ? (
             <div className="bg-white rounded-xl border border-gray-200 p-12 text-center space-y-4">
               <div className="w-12 h-12 rounded-full bg-red-50 text-[#B5121B] flex items-center justify-center mx-auto">
                 <Search className="w-6 h-6" />

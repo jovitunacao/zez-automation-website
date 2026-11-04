@@ -53,7 +53,10 @@ export const AdminDashboardView: React.FC = () => {
     adminLogin,
     adminLogout,
     isDbConnected,
-    refreshProducts
+    refreshProducts,
+    supabaseSeedPending,
+    databaseProductCount,
+    productsError
   } = useApp();
 
   // Admin login states
@@ -348,14 +351,21 @@ export const AdminDashboardView: React.FC = () => {
                 SECURE AUTHENTICATED
               </span>
               {isSupabaseConfigured() ? (
-                <span className="text-[10px] font-mono bg-emerald-900/60 text-emerald-300 border border-emerald-700 px-2 py-0.5 rounded flex items-center gap-1">
-                  <Database className="w-3 h-3 text-emerald-400" />
-                  <span>Supabase PostgreSQL: Connected</span>
-                </span>
+                supabaseSeedPending ? (
+                  <span className="text-[10px] font-mono bg-amber-950 text-amber-300 border border-amber-600 px-2 py-0.5 rounded flex items-center gap-1.5" title="Consignment seed pending: run supabase/consignment_seed.sql in Supabase SQL editor">
+                    <AlertCircle className="w-3 h-3 text-amber-400" />
+                    <span>Supabase: Connected (Product Import Pending: {databaseProductCount}/46 in DB)</span>
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-mono bg-emerald-900/60 text-emerald-300 border border-emerald-700 px-2 py-0.5 rounded flex items-center gap-1">
+                    <Database className="w-3 h-3 text-emerald-400" />
+                    <span>Supabase PostgreSQL: Connected & Authoritative ({products.length} Products)</span>
+                  </span>
+                )
               ) : (
                 <span className="text-[10px] font-mono bg-blue-950 text-blue-300 border border-blue-800 px-2 py-0.5 rounded flex items-center gap-1">
                   <Database className="w-3 h-3 text-blue-400" />
-                  <span>Database: Local Storage Mode</span>
+                  <span>Database: Local Consignment Catalog ({products.length} Items)</span>
                 </span>
               )}
             </div>
@@ -451,12 +461,63 @@ export const AdminDashboardView: React.FC = () => {
       {/* 1. OVERVIEW TAB */}
       {activeAdminTab === 'overview' && (
         <div className="space-y-8 animate-fadeIn">
+          {/* Administrator Warning: Pending Seed Banner */}
+          {isSupabaseConfigured() && supabaseSeedPending && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-5 space-y-3 shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 text-amber-700 mt-0.5">
+                    <AlertCircle className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="font-bold text-sm text-amber-950">
+                      Supabase Product Import Pending: Action Required
+                    </h3>
+                    <p className="text-xs text-amber-900 leading-relaxed">
+                      Supabase PostgreSQL is connected, but the 46 consignment products from <code>supabase/consignment_seed.sql</code> have not been executed in your Supabase project yet. Currently, your database contains <strong>{databaseProductCount} records</strong> in the <code>products</code> table.
+                    </p>
+                    <p className="text-xs text-amber-800">
+                      To ensure seamless customer procurement, the public showroom is currently serving the verified 46 consignment models. To make your Supabase database the authoritative catalog for online inventory and admin management, execute the product seed script.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    setRefreshingCatalog(true);
+                    await refreshProducts();
+                    setRefreshingCatalog(false);
+                  }}
+                  disabled={refreshingCatalog}
+                  className="shrink-0 px-3.5 py-2 bg-amber-200 hover:bg-amber-300 text-amber-950 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingCatalog ? 'animate-spin' : ''}`} />
+                  <span>Re-check Database</span>
+                </button>
+              </div>
+              <div className="bg-white/90 border border-amber-200 rounded-lg p-3 text-xs text-gray-800 space-y-1 font-mono">
+                <div className="font-bold text-gray-900 mb-1">Execution Steps for Administrator:</div>
+                <div>1. Open your Supabase Project Dashboard → <strong>SQL Editor</strong></div>
+                <div>2. Open or copy the contents of <code>supabase/consignment_seed.sql</code></div>
+                <div>3. Click <strong>Run</strong> (imports all 46 consignment SKUs atomically with public SRP)</div>
+                <div>4. Click <strong>"Re-check Database"</strong> above to verify authoritative synchronization</div>
+              </div>
+            </div>
+          )}
+
           {/* Key Metrics */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-2xs space-y-1">
               <span className="text-xs text-gray-500 font-medium">Total Catalog Products</span>
               <div className="text-2xl sm:text-3xl font-black text-gray-900">{products.length}</div>
-              <span className="text-[11px] text-emerald-700 font-semibold">{inStockCount} In Stock</span>
+              <div className="flex items-center gap-1.5 text-[11px] flex-wrap">
+                <span className="text-emerald-700 font-semibold">{inStockCount} In Stock</span>
+                <span className="text-gray-300">·</span>
+                <span className={supabaseSeedPending ? 'text-amber-700 font-medium' : 'text-blue-700 font-medium'}>
+                  {isSupabaseConfigured()
+                    ? (supabaseSeedPending ? `DB Seed Pending (${databaseProductCount}/46 in DB)` : 'Supabase Live')
+                    : 'Local Consignment'}
+                </span>
+              </div>
             </div>
 
             <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-2xs space-y-1">
@@ -705,11 +766,47 @@ export const AdminDashboardView: React.FC = () => {
       {/* 3. PRODUCT CATALOG MANAGEMENT TAB */}
       {activeAdminTab === 'products' && (
         <div className="space-y-6 animate-fadeIn">
+          {/* Administrator Warning: Pending Seed Banner */}
+          {isSupabaseConfigured() && supabaseSeedPending && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-5 space-y-3 shadow-2xs">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-lg bg-amber-100 flex items-center justify-center shrink-0 text-amber-700 mt-0.5">
+                    <AlertCircle className="w-5 h-5" />
+                  </div>
+                  <div className="space-y-1">
+                    <h3 className="font-bold text-sm text-amber-950">
+                      Supabase Product Seed Pending ({databaseProductCount} / 46 in Database)
+                    </h3>
+                    <p className="text-xs text-amber-900 leading-relaxed">
+                      The catalog currently displayed is served from <code>src/data/consignmentProducts.ts</code> because your Supabase database has not had <code>supabase/consignment_seed.sql</code> executed yet.
+                    </p>
+                    <p className="text-xs text-amber-800">
+                      To enable database persistence for stock updates, pricing edits, and product management, execute the seed in your Supabase SQL Editor.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={async () => {
+                    setRefreshingCatalog(true);
+                    await refreshProducts();
+                    setRefreshingCatalog(false);
+                  }}
+                  disabled={refreshingCatalog}
+                  className="shrink-0 px-3.5 py-2 bg-amber-200 hover:bg-amber-300 text-amber-950 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${refreshingCatalog ? 'animate-spin' : ''}`} />
+                  <span>Re-check Database</span>
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-base font-bold text-[#292F36]">Hardware Catalog & Inventory</h2>
               <p className="text-xs text-gray-500">
-                Manage all {products.length} products, sample prices, specs, and stock availability.
+                Manage all {products.length} products, SRP prices, technical specs, and stock availability.
               </p>
             </div>
 
@@ -779,13 +876,13 @@ export const AdminDashboardView: React.FC = () => {
                       <td className="py-3 px-3">
                         <div className="font-mono text-[11px] font-semibold text-gray-800">{prod.sku}</div>
                         <div className="flex items-center gap-1.5 mt-0.5">
-                          {prod.isDemo ? (
-                            <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200" title="Demonstration catalog product">
-                              Demo
+                          {supabaseSeedPending ? (
+                            <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200" title="Serving from local consignment catalog (execute consignment_seed.sql to persist in database)">
+                              Consignment
                             </span>
                           ) : (
-                            <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200" title="Production record in Supabase">
-                              Database
+                            <span className="text-[9px] font-semibold px-1.5 py-0.2 rounded bg-emerald-50 text-emerald-800 border border-emerald-200" title="Authoritative record in Supabase database">
+                              Supabase Live
                             </span>
                           )}
                           <span className="text-[10px] text-gray-400 font-mono truncate max-w-[100px]">{prod.model}</span>

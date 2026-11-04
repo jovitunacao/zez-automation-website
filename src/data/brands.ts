@@ -25,7 +25,7 @@ export const BRANDS: Brand[] = [
     slug: 'linkbasic',
     originCountry: 'Global',
     description: 'Structured cabling solutions, copper patch cords, keystone jacks, network cabinets, and data enclosures.',
-    productCount: 46,
+    productCount: 17,
     website: 'https://www.linkbasic.us'
   },
   {

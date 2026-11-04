@@ -115,7 +115,7 @@ export async function fetchProductsFromSupabase(): Promise<{ data: Product[] | n
     }
 
     if (!data || data.length === 0) {
-      return { data: null };
+      return { data: [] };
     }
 
     const mappedProducts = data.map(mapRowToProduct);
