@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F8FAFC" />
+      <stop offset="100%" stop-color="#F1F5F9" />
+    </linearGradient>
+    <linearGradient id="iconGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#CBD5E1" />
+      <stop offset="100%" stop-color="#94A3B8" />
+    </linearGradient>
+    <filter id="subtleShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-opacity="0.04" />
+    </filter>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="800" fill="url(#bgGrad)" />
+  <rect x="24" y="24" width="752" height="752" rx="24" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="6 6" />
+
+  <!-- Hardware Device Placeholder Illustration -->
+  <g transform="translate(260, 220)" filter="url(#subtleShadow)">
+    <!-- Base rackmount / chassis box -->
+    <rect x="0" y="40" width="280" height="150" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="3" />
+    
+    <!-- Rack ears -->
+    <path d="M-20 60 H0 V170 H-20 Z" fill="#E2E8F0" stroke="#CBD5E1" stroke-width="2" />
+    <circle cx="-10" cy="80" r="4" fill="#94A3B8" />
+    <circle cx="-10" cy="150" r="4" fill="#94A3B8" />
+    
+    <path d="M280 60 H300 V170 H280 Z" fill="#E2E8F0" stroke="#CBD5E1" stroke-width="2" />
+    <circle cx="290" cy="80" r="4" fill="#94A3B8" />
+    <circle cx="290" cy="150" r="4" fill="#94A3B8" />
+
+    <!-- Ports grid -->
+    <g transform="translate(30, 80)">
+      <rect x="0" y="0" width="28" height="24" rx="4" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.5" />
+      <rect x="36" y="0" width="28" height="24" rx="4" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.5" />
+      <rect x="72" y="0" width="28" height="24" rx="4" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.5" />
+      <rect x="108" y="0" width="28" height="24" rx="4" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.5" />
+      
+      <rect x="0" y="34" width="28" height="24" rx="4" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.5" />
+      <rect x="36" y="34" width="28" height="24" rx="4" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.5" />
+      <rect x="72" y="34" width="28" height="24" rx="4" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.5" />
+      <rect x="108" y="34" width="28" height="24" rx="4" fill="#F1F5F9" stroke="#94A3B8" stroke-width="1.5" />
+    </g>
+
+    <!-- Status LEDs -->
+    <circle cx="190" cy="92" r="5" fill="#10B981" />
+    <circle cx="210" cy="92" r="5" fill="#3B82F6" />
+    <circle cx="230" cy="92" r="5" fill="#F59E0B" />
+    
+    <rect x="180" y="114" width="60" height="24" rx="4" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1.5" />
+  </g>
+
+  <!-- Camera / Clock Pending Symbol -->
+  <g transform="translate(360, 435)">
+    <circle cx="40" cy="40" r="32" fill="#FFFFFF" stroke="#E2E8F0" stroke-width="2" filter="url(#subtleShadow)" />
+    <!-- Clock / Camera Icon -->
+    <path d="M40 24 V40 L52 46" stroke="#B5121B" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+    <circle cx="40" cy="40" r="22" stroke="#B5121B" stroke-width="2.5" fill="none" />
+  </g>
+
+  <!-- Typography Labels -->
+  <text x="400" y="550" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="700" fill="#292F36">
+    Official Equipment Photo Pending
+  </text>
+  
+  <text x="400" y="582" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" font-weight="500" fill="#64748B">
+    Part number and technical specifications confirmed
+  </text>
+
+  <!-- ZEZ Verification Badge -->
+  <g transform="translate(285, 615)">
+    <rect width="230" height="34" rx="17" fill="#FEF2F2" stroke="#FECACA" stroke-width="1" />
+    <circle cx="22" cy="17" r="5" fill="#B5121B" />
+    <text x="36" y="22" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#991B1B">
+      ZEZ AUTOMATION CATALOG
+    </text>
+  </g>
+</svg>

@@ -1,7 +1,7 @@
-import type { Product } from '../types';
+import type { Product } from "../types";
 
 // ZEZ consignment products: public SRP only; supplier purchase costs intentionally excluded.
-// Photography is either supplier-provided, manufacturer-matched, or illustrative fallback.
+// Photography is either supplier-provided, official manufacturer-matched, or neutral pending placeholder.
 export const CONSIGNMENT_PRODUCTS: Product[] = [
   {
     "id": "consignment-cla04-uc5e-7035",
@@ -19,9 +19,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/linkbasic-cla04-uc5e.jpg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/linkbasic-cla04-uc5e.jpg"
     ],
     "keySpecs": [
       "Copper Cables",
@@ -40,7 +40,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "manufacturer-matched"
   },
   {
     "id": "consignment-cla04-uc6-5015",
@@ -58,9 +59,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/linkbasic-cla04-uc6.png",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/linkbasic-cla04-uc6.png"
     ],
     "keySpecs": [
       "Copper Cables",
@@ -79,7 +80,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "manufacturer-matched"
   },
   {
     "id": "consignment-fcs11-2-f-lszh",
@@ -97,9 +99,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/cable-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/cable-pending.svg"
     ],
     "keySpecs": [
       "Fiber Cables",
@@ -118,7 +120,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-ous01",
@@ -136,9 +139,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/linkbasic-ous01.jpg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/linkbasic-ous01.jpg"
     ],
     "keySpecs": [
       "Faceplates",
@@ -157,7 +160,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "manufacturer-matched"
   },
   {
     "id": "consignment-ous02",
@@ -175,9 +179,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/image-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/image-pending.svg"
     ],
     "keySpecs": [
       "Faceplates",
@@ -196,7 +200,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-tsdi-2pbox-u",
@@ -235,7 +240,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-jka09-uc5e-a",
@@ -253,9 +259,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/keystone-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/keystone-pending.svg"
     ],
     "keySpecs": [
       "Modular Jack Cat5E",
@@ -274,7 +280,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-jka09-uc5e-b",
@@ -292,9 +299,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/keystone-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/keystone-pending.svg"
     ],
     "keySpecs": [
       "Modular Jack Cat5E",
@@ -313,7 +320,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-jka09-uc6",
@@ -331,9 +339,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/linkbasic-jka09.jpg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/linkbasic-jka09.jpg"
     ],
     "keySpecs": [
       "Modular Jack Cat6",
@@ -352,7 +360,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "manufacturer-matched"
   },
   {
     "id": "consignment-jka09-uc6-a",
@@ -370,9 +379,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/keystone-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/keystone-pending.svg"
     ],
     "keySpecs": [
       "Modular Jack Cat6",
@@ -391,7 +400,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-pna24-kj",
@@ -409,9 +419,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/linkbasic-pna24-kj.jpg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/linkbasic-pna24-kj.jpg"
     ],
     "keySpecs": [
       "Patch Panel",
@@ -430,7 +440,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "manufacturer-matched"
   },
   {
     "id": "consignment-pna24-uc6",
@@ -448,9 +459,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://www.linkbasic.us/linkbasic/2021/08/18/pna24-uc6.jpg",
+    "mainImage": "/catalog/linkbasic-pna24-uc6.jpg",
     "galleryImages": [
-      "https://www.linkbasic.us/linkbasic/2021/08/18/pna24-uc6.jpg"
+      "/catalog/linkbasic-pna24-uc6.jpg"
     ],
     "keySpecs": [
       "Patch Panel",
@@ -469,7 +480,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "manufacturer-matched"
   },
   {
     "id": "consignment-caa01-uc5e-1-b",
@@ -487,9 +499,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/linkbasic-caa01-blue.jpg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/linkbasic-caa01-blue.jpg"
     ],
     "keySpecs": [
       "Patch Cord Cat5E",
@@ -508,7 +520,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "manufacturer-matched"
   },
   {
     "id": "consignment-caa01-uc5e-2-b",
@@ -526,9 +539,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/linkbasic-caa01-blue.jpg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/linkbasic-caa01-blue.jpg"
     ],
     "keySpecs": [
       "Patch Cord Cat5E",
@@ -547,7 +560,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "manufacturer-matched"
   },
   {
     "id": "consignment-caa01-uc5e-3-b",
@@ -565,9 +579,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/linkbasic-caa01-blue.jpg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/linkbasic-caa01-blue.jpg"
     ],
     "keySpecs": [
       "Patch Cord Cat5E",
@@ -586,7 +600,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "manufacturer-matched"
   },
   {
     "id": "consignment-caa01-uc6-1-b",
@@ -604,9 +619,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/linkbasic-caa01-blue.jpg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/linkbasic-caa01-blue.jpg"
     ],
     "keySpecs": [
       "Patch Cord Cat6",
@@ -625,7 +640,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "manufacturer-matched"
   },
   {
     "id": "consignment-caa01-uc6-1-w",
@@ -643,9 +659,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/patchcord-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/patchcord-pending.svg"
     ],
     "keySpecs": [
       "Patch Cord Cat6",
@@ -664,7 +680,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-caa01-uc6-2-b",
@@ -682,9 +699,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/linkbasic-caa01-blue.jpg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/linkbasic-caa01-blue.jpg"
     ],
     "keySpecs": [
       "Patch Cord Cat6",
@@ -703,7 +720,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "manufacturer-matched"
   },
   {
     "id": "consignment-caa01-uc6-2-w",
@@ -721,9 +739,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/patchcord-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/patchcord-pending.svg"
     ],
     "keySpecs": [
       "Patch Cord Cat6",
@@ -742,7 +760,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-caa01-uc6-3-b",
@@ -760,9 +779,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/linkbasic-caa01-blue.jpg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/linkbasic-caa01-blue.jpg"
     ],
     "keySpecs": [
       "Patch Cord Cat6",
@@ -781,7 +800,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "manufacturer-matched"
   },
   {
     "id": "consignment-caa01-uc6-3-w",
@@ -799,9 +819,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/patchcord-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/patchcord-pending.svg"
     ],
     "keySpecs": [
       "Patch Cord Cat6",
@@ -820,7 +840,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-tsdi-81000-42-lns",
@@ -859,7 +880,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-61100-42-lns",
@@ -898,7 +920,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-6800-28",
@@ -937,7 +960,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-wk14",
@@ -976,7 +1000,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-6600-10u",
@@ -1015,7 +1040,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-w647",
@@ -1054,7 +1080,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-pdu6-hor",
@@ -1093,7 +1120,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-pdu8hor-spd",
@@ -1132,7 +1160,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-hcm1",
@@ -1171,7 +1200,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-5451",
@@ -1189,9 +1219,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/image-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=800&q=80"
+      "/catalog/image-pending.svg"
     ],
     "keySpecs": [
       "Horizontal Cable Manager",
@@ -1210,7 +1240,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-tsdi-fdf-yyy-lc-sm-mm-wm",
@@ -1249,7 +1280,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-ffc-55-2-s",
@@ -1288,7 +1320,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-ffc55-2",
@@ -1327,7 +1360,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-fas50-1-1",
@@ -1345,9 +1379,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/image-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/image-pending.svg"
     ],
     "keySpecs": [
       "Fiber And Copper Accessories",
@@ -1366,7 +1400,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-tsdi-fb2p",
@@ -1405,7 +1440,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-blk",
@@ -1444,7 +1480,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-fb1",
@@ -1483,7 +1520,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-fb2",
@@ -1522,7 +1560,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-cat6-rj45-ez",
@@ -1561,7 +1600,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-cat6-ez-tool",
@@ -1600,7 +1640,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   },
   {
     "id": "consignment-tsdi-cnm6",
@@ -1618,9 +1659,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/image-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/image-pending.svg"
     ],
     "keySpecs": [
       "Fiber And Copper Accessories",
@@ -1639,7 +1680,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-tsdi-velcro",
@@ -1657,9 +1699,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/image-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/image-pending.svg"
     ],
     "keySpecs": [
       "Fiber And Copper Accessories",
@@ -1678,7 +1720,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-tsdi-wm100-200-ez-5",
@@ -1696,9 +1739,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/image-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/image-pending.svg"
     ],
     "keySpecs": [
       "Wire Mesh (Wire Basket)",
@@ -1717,7 +1760,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-tsdi-wm100-300-ez-5",
@@ -1735,9 +1779,9 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
     "warranty": "Contact for warranty details",
     "isFeatured": false,
     "isNewArrival": false,
-    "mainImage": "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80",
+    "mainImage": "/catalog/image-pending.svg",
     "galleryImages": [
-      "https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80"
+      "/catalog/image-pending.svg"
     ],
     "keySpecs": [
       "Wire Mesh (Wire Basket)",
@@ -1756,7 +1800,8 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "pending"
   },
   {
     "id": "consignment-tsdi-kk34",
@@ -1795,6 +1840,7 @@ export const CONSIGNMENT_PRODUCTS: Product[] = [
       }
     ],
     "includedAccessories": [],
-    "isDemo": false
+    "isDemo": false,
+    "imageStatus": "supplier-provided"
   }
 ];

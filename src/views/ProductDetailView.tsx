@@ -145,8 +145,16 @@ export const ProductDetailView: React.FC = () => {
             </button>
           </div>
 
-          {/* Illustrative image audit disclaimer if pending exact-model supplier photo */}
-          {imgMeta?.isIllustrative && (
+          {/* Image audit disclaimer for pending or illustrative images */}
+          {imgMeta?.status === 'pending' ? (
+            <div className="text-xs text-slate-800 bg-slate-50 p-3 rounded-lg border border-slate-200 flex items-start gap-2.5 shadow-2xs">
+              <HelpCircle className="w-4 h-4 text-slate-500 shrink-0 mt-0.5" />
+              <div>
+                <span className="font-bold">Official Equipment Photo Pending: </span>
+                <span>Exact model photograph is pending official manufacturer asset intake. Model number, technical parameters, and SRP pricing are verified.</span>
+              </div>
+            </div>
+          ) : imgMeta?.isIllustrative ? (
             <div className="text-xs text-amber-900 bg-amber-50 p-3 rounded-lg border border-amber-200 flex items-start gap-2.5 shadow-2xs">
               <HelpCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
               <div>
@@ -154,7 +162,7 @@ export const ProductDetailView: React.FC = () => {
                 <span>Exact item photograph pending distributor intake verification. Technical part numbers, category specifications, and SRPs shown are authoritative.</span>
               </div>
             </div>
-          )}
+          ) : null}
 
           {/* Thumbnails */}
           <div className="flex items-center gap-3 overflow-x-auto pb-1">

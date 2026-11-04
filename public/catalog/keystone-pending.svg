@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="100%" height="100%">
+  <defs>
+    <linearGradient id="jackBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F8FAFC" />
+      <stop offset="100%" stop-color="#F1F5F9" />
+    </linearGradient>
+    <filter id="jackShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-opacity="0.04" />
+    </filter>
+  </defs>
+
+  <rect width="800" height="800" fill="url(#jackBg)" />
+  <rect x="24" y="24" width="752" height="752" rx="24" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="6 6" />
+
+  <!-- Keystone Jack Icon -->
+  <g transform="translate(300, 200)" filter="url(#jackShadow)">
+    <!-- Main Body Housing -->
+    <path d="M30 40 L170 40 L190 70 L190 190 L10 190 L10 70 Z" fill="#FFFFFF" stroke="#94A3B8" stroke-width="3" />
+    <!-- Latch Tab -->
+    <rect x="75" y="15" width="50" height="25" rx="4" fill="#E2E8F0" stroke="#94A3B8" stroke-width="2" />
+    <!-- Front RJ45 Port Opening -->
+    <rect x="40" y="75" width="120" height="85" rx="6" fill="#F1F5F9" stroke="#64748B" stroke-width="2.5" />
+    <!-- Gold Pins inside Port -->
+    <g transform="translate(56, 95)">
+      <line x1="0" y1="0" x2="0" y2="40" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" />
+      <line x1="12" y1="0" x2="12" y2="40" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" />
+      <line x1="24" y1="0" x2="24" y2="40" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" />
+      <line x1="36" y1="0" x2="36" y2="40" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" />
+      <line x1="48" y1="0" x2="48" y2="40" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" />
+      <line x1="60" y1="0" x2="60" y2="40" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" />
+      <line x1="72" y1="0" x2="72" y2="40" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" />
+      <line x1="84" y1="0" x2="84" y2="40" stroke="#F59E0B" stroke-width="3" stroke-linecap="round" />
+    </g>
+  </g>
+
+  <!-- Typography Labels -->
+  <text x="400" y="550" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="700" fill="#292F36">
+    Official Keystone Jack Photo Pending
+  </text>
+  
+  <text x="400" y="582" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" font-weight="500" fill="#64748B">
+    Category rating, 180° termination, and color specification verified
+  </text>
+
+  <!-- ZEZ Verification Badge -->
+  <g transform="translate(285, 615)">
+    <rect width="230" height="34" rx="17" fill="#FEF2F2" stroke="#FECACA" stroke-width="1" />
+    <circle cx="22" cy="17" r="5" fill="#B5121B" />
+    <text x="36" y="22" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#991B1B">
+      ZEZ AUTOMATION CATALOG
+    </text>
+  </g>
+</svg>

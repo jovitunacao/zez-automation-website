@@ -256,11 +256,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           Array.isArray(parsed) && 
           parsed.length >= 46 && 
           parsed.some(p => p.id?.startsWith('consignment-') || p.sku === 'CLA04-UC5E-7035') &&
-          !parsed.some(p => LEGACY_MOCK_SAMPLE_IDS.has(p.id))
+          !parsed.some(p => LEGACY_MOCK_SAMPLE_IDS.has(p.id)) &&
+          !parsed.some(p => p.mainImage?.includes('unsplash.com'))
         ) {
           return parsed;
         } else {
-          // Clear outdated legacy mock storage
+          // Clear outdated legacy mock storage or un-audited images
           localStorage.removeItem('zez_products');
         }
       }

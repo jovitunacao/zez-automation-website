@@ -21,7 +21,7 @@ export function getProductSalesUnit(product: Product): string {
   return 'pc';
 }
 
-export type ProductImageCategory = 'supplier-provided' | 'manufacturer-matched' | 'illustrative';
+export type ProductImageCategory = 'supplier-provided' | 'manufacturer-matched' | 'illustrative' | 'pending';
 
 export interface ProductImageMeta {
   status: ProductImageCategory;
@@ -33,7 +33,31 @@ export interface ProductImageMeta {
 }
 
 export function getProductImageMetadata(product: Product): ProductImageMeta {
-  if (product.imageStatus === 'supplier-provided' || product.mainImage?.startsWith('/catalog/')) {
+  const mainImage = product.mainImage || '';
+
+  // 1. Pending Placeholder Detection
+  if (
+    product.imageStatus === 'pending' ||
+    mainImage.includes('-pending.svg') ||
+    mainImage.includes('image-pending.svg')
+  ) {
+    return {
+      status: 'pending',
+      label: 'Official Photo Pending',
+      shortLabel: 'Photo Pending',
+      badgeColor: 'bg-slate-100 text-slate-700 border-slate-300',
+      isIllustrative: true,
+      disclaimer: 'Official manufacturer equipment photograph pending verification. Technical specifications and SKU confirmed.'
+    };
+  }
+
+  // 2. Strict Supplier-Provided Verification
+  // Only true supplier-provided images (explicitly marked or verified supplier assets tsdi- / ffc-)
+  const isSupplierAsset =
+    mainImage.includes('/catalog/tsdi-') ||
+    mainImage.includes('/catalog/ffc-');
+
+  if (product.imageStatus === 'supplier-provided' || isSupplierAsset) {
     return {
       status: 'supplier-provided',
       label: 'Verified Supplier Photo',
@@ -42,19 +66,25 @@ export function getProductImageMetadata(product: Product): ProductImageMeta {
       isIllustrative: false
     };
   }
-  if (
+
+  // 3. Official Manufacturer Matches
+  const isManufacturerAsset =
     product.imageStatus === 'manufacturer-matched' ||
-    product.mainImage?.includes('linkbasic.us') ||
-    product.sku === 'PNA24-UC6'
-  ) {
+    mainImage.includes('/catalog/linkbasic-') ||
+    mainImage.includes('linkbasic.us') ||
+    product.sku === 'PNA24-UC6';
+
+  if (isManufacturerAsset) {
     return {
       status: 'manufacturer-matched',
-      label: 'Manufacturer Reference Photo',
-      shortLabel: 'Mfg Match',
-      badgeColor: 'bg-sky-50 text-sky-800 border-sky-200',
+      label: 'Official Manufacturer Photo',
+      shortLabel: 'Mfg Verified',
+      badgeColor: 'bg-blue-50 text-blue-800 border-blue-200',
       isIllustrative: false
     };
   }
+
+  // 4. Fallback / Illustrative
   return {
     status: 'illustrative',
     label: 'Illustrative Image (Model Photo Pending)',

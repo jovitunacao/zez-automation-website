@@ -324,7 +324,7 @@ export const Header: React.FC = () => {
                       <img
                         src={p.mainImage}
                         alt={p.name}
-                        className="w-8 h-8 object-cover rounded border border-gray-200 shrink-0"
+                        className="w-8 h-8 object-contain bg-white rounded border border-gray-200 shrink-0 p-0.5"
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold text-[#292F36] truncate">{p.name}</p>
@@ -432,7 +432,7 @@ export const Header: React.FC = () => {
                       <img
                         src={p.mainImage}
                         alt={p.name}
-                        className="w-10 h-10 object-cover rounded border border-gray-200 shrink-0"
+                        className="w-10 h-10 object-contain bg-white rounded border border-gray-200 shrink-0 p-0.5"
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold text-[#292F36] truncate">{p.name}</p>
@@ -561,7 +561,7 @@ export const Header: React.FC = () => {
                       <img
                         src={p.mainImage}
                         alt={p.name}
-                        className="w-10 h-10 object-cover rounded border border-gray-200 shrink-0"
+                        className="w-10 h-10 object-contain bg-white rounded border border-gray-200 shrink-0 p-0.5"
                       />
                       <div className="flex-1 min-w-0">
                         <p className="text-xs font-bold text-[#292F36] truncate">{p.name}</p>

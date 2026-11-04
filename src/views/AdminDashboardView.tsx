@@ -34,7 +34,7 @@ import {
 import { useApp } from '../context/AppContext';
 import { Product, RfqStatus, QuotationRequest, StockStatus } from '../types';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { getDisplayBrand, getProductSalesUnit } from '../utils/productUtils';
+import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata } from '../utils/productUtils';
 
 export const AdminDashboardView: React.FC = () => {
   const { 
@@ -115,7 +115,7 @@ export const AdminDashboardView: React.FC = () => {
     warranty: '1-Year Limited Warranty',
     isFeatured: false,
     isPublished: true,
-    mainImage: 'https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80',
+    mainImage: '/catalog/image-pending.svg',
     galleryImages: [],
     keySpecs: [],
     specifications: [],
@@ -181,7 +181,7 @@ export const AdminDashboardView: React.FC = () => {
       warranty: '1-Year Limited Warranty',
       isFeatured: false,
       isPublished: true,
-      mainImage: 'https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80',
+      mainImage: '/catalog/image-pending.svg',
       galleryImages: [],
       keySpecs: ['Enterprise Grade Reliability', 'Standard Compliant', 'Certified Performance'],
       specifications: [
@@ -298,7 +298,7 @@ export const AdminDashboardView: React.FC = () => {
       .map(s => s.trim())
       .filter(Boolean);
 
-    const mainImg = prodForm.mainImage?.trim() || 'https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80';
+    const mainImg = prodForm.mainImage?.trim() || '/catalog/image-pending.svg';
     const combinedGallery = Array.from(new Set([mainImg, ...parsedAdditionalGalleries]));
 
     const validSpecs = specificationsList.filter(s => s.label.trim() && s.value.trim());
@@ -1078,6 +1078,16 @@ export const AdminDashboardView: React.FC = () => {
                               >
                                 {prod.name}
                               </span>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                {(() => {
+                                  const imgMeta = getProductImageMetadata(prod);
+                                  return (
+                                    <span className={`text-[9px] font-semibold px-1.5 py-0.2 rounded border ${imgMeta.badgeColor}`}>
+                                      {imgMeta.shortLabel}
+                                    </span>
+                                  );
+                                })()}
+                              </div>
                             </div>
                           </div>
                         </td>

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 800" width="100%" height="100%">
+  <defs>
+    <linearGradient id="patchBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F8FAFC" />
+      <stop offset="100%" stop-color="#F1F5F9" />
+    </linearGradient>
+    <filter id="patchShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-opacity="0.04" />
+    </filter>
+  </defs>
+
+  <rect width="800" height="800" fill="url(#patchBg)" />
+  <rect x="24" y="24" width="752" height="752" rx="24" fill="none" stroke="#E2E8F0" stroke-width="2" stroke-dasharray="6 6" />
+
+  <!-- Patch Cord Illustration -->
+  <g transform="translate(260, 200)" filter="url(#patchShadow)">
+    <!-- Cable Loop -->
+    <path d="M40 220 C-20 120, 100 40, 220 70 C310 90, 310 220, 210 220 C140 220, 110 160, 160 120" 
+          stroke="#E2E8F0" stroke-width="18" stroke-linecap="round" fill="none" />
+    <path d="M40 220 C-20 120, 100 40, 220 70 C310 90, 310 220, 210 220 C140 220, 110 160, 160 120" 
+          stroke="#94A3B8" stroke-width="14" stroke-linecap="round" fill="none" />
+    
+    <!-- RJ45 Plug 1 (White / Clear boot) -->
+    <g transform="translate(18, 200) rotate(-35)">
+      <rect x="0" y="0" width="36" height="60" rx="6" fill="#F8FAFC" stroke="#64748B" stroke-width="2.5" />
+      <path d="M8 25 L8 60 M16 25 L16 60 M24 25 L24 60" stroke="#F59E0B" stroke-width="2" />
+      <!-- Latch -->
+      <path d="M12 0 L12 -12 L24 -12 L24 0" stroke="#94A3B8" stroke-width="2.5" fill="#FFFFFF" />
+      <!-- Strain relief boot -->
+      <path d="M2 60 L34 60 L30 85 L6 85 Z" fill="#E2E8F0" stroke="#94A3B8" stroke-width="2" />
+    </g>
+  </g>
+
+  <!-- Typography Labels -->
+  <text x="400" y="550" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="22" font-weight="700" fill="#292F36">
+    Official White Patch Cord Photo Pending
+  </text>
+  
+  <text x="400" y="582" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="14" font-weight="500" fill="#64748B">
+    Category 6 UTP, molded boot, and length specification verified
+  </text>
+
+  <!-- ZEZ Verification Badge -->
+  <g transform="translate(285, 615)">
+    <rect width="230" height="34" rx="17" fill="#FEF2F2" stroke="#FECACA" stroke-width="1" />
+    <circle cx="22" cy="17" r="5" fill="#B5121B" />
+    <text x="36" y="22" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif" font-size="12" font-weight="700" fill="#991B1B">
+      ZEZ AUTOMATION CATALOG
+    </text>
+  </g>
+</svg>

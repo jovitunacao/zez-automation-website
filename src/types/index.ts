@@ -41,7 +41,7 @@ export interface ProductSpecification {
   value: string;
 }
 
-export type ProductImageStatus = 'supplier-provided' | 'manufacturer-matched' | 'illustrative';
+export type ProductImageStatus = 'supplier-provided' | 'manufacturer-matched' | 'illustrative' | 'pending';
 
 export interface Product {
   id: string;

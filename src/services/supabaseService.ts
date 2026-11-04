@@ -51,7 +51,8 @@ function mapRowToProduct(row: any): Product {
     datasheetUrl: row.datasheet_url || undefined,
     datasheetFileName: row.datasheet_file_name || undefined,
     isDemo: Boolean(row.is_demo),
-    isPublished: row.is_published !== undefined && row.is_published !== null ? Boolean(row.is_published) : true
+    isPublished: row.is_published !== undefined && row.is_published !== null ? Boolean(row.is_published) : true,
+    imageStatus: row.image_status || undefined
   };
 }
 
@@ -85,6 +86,7 @@ function mapProductToRow(prod: Product): any {
     datasheet_url: prod.datasheetUrl || null,
     datasheet_file_name: prod.datasheetFileName || null,
     is_demo: Boolean(prod.isDemo),
+    image_status: prod.imageStatus || null,
     updated_at: new Date().toISOString()
   };
 }
