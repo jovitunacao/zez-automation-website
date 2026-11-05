@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 import { Logo } from '../brand/Logo';
+import { handleProductImageError } from '../../utils/productUtils';
 
 export const Header: React.FC = () => {
   const { 
@@ -324,6 +325,7 @@ export const Header: React.FC = () => {
                       <img
                         src={p.mainImage}
                         alt={p.name}
+                        onError={handleProductImageError}
                         className="w-8 h-8 object-contain bg-white rounded border border-gray-200 shrink-0 p-0.5"
                       />
                       <div className="flex-1 min-w-0">
@@ -432,6 +434,7 @@ export const Header: React.FC = () => {
                       <img
                         src={p.mainImage}
                         alt={p.name}
+                        onError={handleProductImageError}
                         className="w-10 h-10 object-contain bg-white rounded border border-gray-200 shrink-0 p-0.5"
                       />
                       <div className="flex-1 min-w-0">
@@ -561,6 +564,7 @@ export const Header: React.FC = () => {
                       <img
                         src={p.mainImage}
                         alt={p.name}
+                        onError={handleProductImageError}
                         className="w-10 h-10 object-contain bg-white rounded border border-gray-200 shrink-0 p-0.5"
                       />
                       <div className="flex-1 min-w-0">

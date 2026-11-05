@@ -11,7 +11,7 @@ import {
   Building2
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { getDisplayBrand, getProductSalesUnit } from '../../utils/productUtils';
+import { getDisplayBrand, getProductSalesUnit, handleProductImageError } from '../../utils/productUtils';
 
 export const QuotationDrawer: React.FC = () => {
   const { 
@@ -111,6 +111,7 @@ export const QuotationDrawer: React.FC = () => {
                       <img
                         src={item.product.mainImage}
                         alt={item.product.name}
+                        onError={handleProductImageError}
                         className="w-16 h-16 object-contain bg-white rounded border border-gray-100 shrink-0 p-1"
                       />
                       <div className="flex-1 min-w-0">

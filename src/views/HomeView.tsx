@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Product } from '../types';
-import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata } from '../utils/productUtils';
+import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata, handleProductImageError } from '../utils/productUtils';
 
 export const HomeView: React.FC = () => {
   const { 
@@ -276,6 +276,7 @@ export const HomeView: React.FC = () => {
                   <img
                     src={product.mainImage}
                     alt={product.name}
+                    onError={handleProductImageError}
                     className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
                   />
                   {/* Stock indicator badge & Image status */}

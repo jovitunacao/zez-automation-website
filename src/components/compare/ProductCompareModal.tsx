@@ -1,7 +1,7 @@
 import React from 'react';
 import { X, Trash2, ShoppingCart, Plus, Check } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { getDisplayBrand, getProductSalesUnit } from '../../utils/productUtils';
+import { getDisplayBrand, getProductSalesUnit, handleProductImageError } from '../../utils/productUtils';
 
 export const ProductCompareModal: React.FC = () => {
   const { 
@@ -64,6 +64,7 @@ export const ProductCompareModal: React.FC = () => {
                       <img
                         src={prod.mainImage}
                         alt={prod.name}
+                        onError={handleProductImageError}
                         className="w-full h-36 object-contain rounded-lg border border-gray-100 bg-gray-50"
                       />
                       <span className="text-[11px] font-bold text-[#B5121B] uppercase tracking-wide">

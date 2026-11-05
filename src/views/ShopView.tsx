@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Product } from '../types';
-import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata } from '../utils/productUtils';
+import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata, handleProductImageError } from '../utils/productUtils';
 
 export const ShopView: React.FC = () => {
   const { 
@@ -574,6 +574,7 @@ export const ShopView: React.FC = () => {
                         src={product.mainImage}
                         alt={product.name}
                         className="max-h-full max-w-full object-contain group-hover:scale-105 transition-transform duration-300"
+                        onError={handleProductImageError}
                       />
                       <div className="absolute top-2.5 left-2.5 flex flex-col gap-1 items-start z-10">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200 shadow-2xs">
@@ -684,6 +685,7 @@ export const ShopView: React.FC = () => {
                         src={product.mainImage}
                         alt={product.name}
                         className="w-32 h-32 object-contain rounded-lg border border-gray-100 bg-gray-50 shrink-0"
+                        onError={handleProductImageError}
                       />
                       <span className={`absolute bottom-1 left-1 text-[8px] font-semibold px-1 py-0.5 rounded border ${imgMeta.badgeColor}`}>
                         {imgMeta.shortLabel}

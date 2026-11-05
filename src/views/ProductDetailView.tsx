@@ -15,7 +15,8 @@ import {
   Share2
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata } from '../utils/productUtils';
+import { Product } from '../types';
+import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata, handleProductImageError } from '../utils/productUtils';
 
 export const ProductDetailView: React.FC = () => {
   const { 
@@ -125,6 +126,7 @@ export const ProductDetailView: React.FC = () => {
               src={selectedImage || product.mainImage}
               alt={product.name}
               className="max-h-full max-w-full object-contain hover:scale-105 transition-transform duration-300"
+              onError={handleProductImageError}
             />
             <div className="absolute top-4 left-4 flex flex-col gap-1.5 items-start z-10">
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200 shadow-2xs">
@@ -172,7 +174,7 @@ export const ProductDetailView: React.FC = () => {
                 selectedImage === product.mainImage ? 'border-[#B5121B]' : 'border-gray-200 hover:border-gray-300'
               }`}
             >
-              <img src={product.mainImage} alt={product.name} className="w-full h-full object-contain" />
+              <img src={product.mainImage} alt={product.name} className="w-full h-full object-contain" onError={handleProductImageError} />
             </button>
             {product.galleryImages.map((imgUrl, idx) => (
               <button
@@ -182,7 +184,7 @@ export const ProductDetailView: React.FC = () => {
                   selectedImage === imgUrl ? 'border-[#B5121B]' : 'border-gray-200 hover:border-gray-300'
                 }`}
               >
-                <img src={imgUrl} alt={`${product.name} alternate view ${idx + 1}`} className="w-full h-full object-contain" />
+                <img src={imgUrl} alt={`${product.name} alternate view ${idx + 1}`} className="w-full h-full object-contain" onError={handleProductImageError} />
               </button>
             ))}
           </div>
@@ -555,6 +557,7 @@ export const ProductDetailView: React.FC = () => {
                     src={rel.mainImage}
                     alt={rel.name}
                     className="w-full h-36 object-contain rounded bg-gray-50 mb-3"
+                    onError={handleProductImageError}
                   />
                   <span className="text-[10px] font-bold text-[#B5121B] uppercase">{rel.brand}</span>
                   <h4

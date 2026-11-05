@@ -579,3 +579,151 @@ export async function checkActiveAdminSession(): Promise<AdminAuthResult> {
     return { success: false };
   }
 }
+
+// -----------------------------------------------------------------------------
+// SUPABASE STORAGE MANAGEMENT (Dedicated 'product-images' bucket)
+// -----------------------------------------------------------------------------
+
+export interface UploadImageResult {
+  success: boolean;
+  publicUrl?: string;
+  filePath?: string;
+  error?: string;
+}
+
+const ALLOWED_IMAGE_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/svg+xml',
+  'image/gif',
+  'image/avif'
+];
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB limit
+
+/**
+ * Uploads a product photograph to the dedicated 'product-images' Supabase Storage bucket.
+ * Validates file MIME type, file size, and handles mobile camera/photos as well as desktop files.
+ * In local sandbox mode without active Supabase credentials, safely converts to a data URL for testing.
+ */
+export async function uploadProductImageToSupabase(
+  file: File,
+  sku?: string
+): Promise<UploadImageResult> {
+  // 1. File size validation (Max 10MB)
+  if (file.size > MAX_IMAGE_SIZE_BYTES) {
+    const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+    return {
+      success: false,
+      error: `File size (${sizeMb} MB) exceeds maximum allowed limit of 10 MB. Please choose a smaller photo.`
+    };
+  }
+
+  // 2. MIME type validation
+  const fileType = file.type?.toLowerCase();
+  const isTypeAllowed = ALLOWED_IMAGE_TYPES.includes(fileType) || fileType.startsWith('image/');
+  if (!isTypeAllowed) {
+    return {
+      success: false,
+      error: 'Unsupported image format. Allowed formats: JPG, PNG, WebP, SVG, GIF, or AVIF.'
+    };
+  }
+
+  // 3. Generate sanitized, unique storage path
+  const cleanSku = (sku || 'custom-equipment').replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+  const cleanFileName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
+  const uniqueId = Math.random().toString(36).substring(2, 8);
+  const filePath = `products/${cleanSku}/${Date.now()}-${uniqueId}-${cleanFileName}`;
+
+  // 4. Supabase Storage upload
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data, error } = await supabase.storage
+        .from('product-images')
+        .upload(filePath, file, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: file.type || 'image/jpeg'
+        });
+
+      if (error) {
+        console.error('[ZEZ Storage] Image upload error:', error.message);
+        let humanMessage = error.message;
+        if (
+          error.message?.toLowerCase().includes('row-level security') ||
+          error.message?.toLowerCase().includes('violates') ||
+          error.message?.toLowerCase().includes('unauthorized') ||
+          error.message?.toLowerCase().includes('permission')
+        ) {
+          humanMessage = 'Storage upload denied by security policy. Please ensure you are logged in as an active administrator.';
+        }
+        return { success: false, error: humanMessage };
+      }
+
+      // Retrieve public URL from bucket
+      const { data: urlData } = supabase.storage
+        .from('product-images')
+        .getPublicUrl(filePath);
+
+      if (!urlData?.publicUrl) {
+        return { success: false, error: 'Could not obtain public URL for uploaded photograph.' };
+      }
+
+      return {
+        success: true,
+        publicUrl: urlData.publicUrl,
+        filePath
+      };
+    } catch (err: any) {
+      console.error('[ZEZ Storage] Unexpected error uploading image:', err.message);
+      return { success: false, error: err.message || 'Network error uploading photograph.' };
+    }
+  }
+
+  // 5. Fallback for local demo mode without configured Supabase
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      resolve({
+        success: true,
+        publicUrl: reader.result as string,
+        filePath
+      });
+    };
+    reader.onerror = () => {
+      resolve({
+        success: false,
+        error: 'Failed to read selected image file.'
+      });
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Deletes a photograph from the 'product-images' Supabase Storage bucket.
+ */
+export async function deleteProductImageFromSupabase(filePathOrUrl: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured() || !supabase) {
+    return { success: true };
+  }
+
+  try {
+    let path = filePathOrUrl;
+    if (path.includes('/product-images/')) {
+      path = path.split('/product-images/')[1].split('?')[0];
+    }
+
+    if (path && !path.startsWith('http') && !path.startsWith('data:') && !path.startsWith('/catalog/')) {
+      const decodedPath = decodeURIComponent(path);
+      const { error } = await supabase.storage.from('product-images').remove([decodedPath]);
+      if (error) {
+        console.warn('[ZEZ Storage] Delete warning:', error.message);
+      }
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+

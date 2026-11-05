@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { CustomerType, ContactMethod, RfqCustomerInfo, QuotationRequest } from '../types';
-import { getDisplayBrand, getProductSalesUnit } from '../utils/productUtils';
+import { getDisplayBrand, getProductSalesUnit, handleProductImageError } from '../utils/productUtils';
 
 export const RfqCheckoutView: React.FC = () => {
   const { 
@@ -419,6 +419,7 @@ export const RfqCheckoutView: React.FC = () => {
                 <img
                   src={item.product.mainImage}
                   alt={item.product.name}
+                  onError={handleProductImageError}
                   className="w-14 h-14 object-cover rounded bg-white border border-gray-200 shrink-0"
                 />
                 <div className="flex-1 min-w-0">

@@ -32,6 +32,21 @@ export interface ProductImageMeta {
   disclaimer?: string;
 }
 
+export const DEFAULT_PRODUCT_FALLBACK_IMAGE = '/catalog/image-pending.svg';
+
+/**
+ * Reusable image error handler to replace broken or failing images with a neutral SVG placeholder
+ */
+export function handleProductImageError(
+  event: React.SyntheticEvent<HTMLImageElement, Event>,
+  customFallback: string = DEFAULT_PRODUCT_FALLBACK_IMAGE
+) {
+  const target = event.currentTarget;
+  if (!target.src.includes('image-pending.svg')) {
+    target.src = customFallback;
+  }
+}
+
 export function getProductImageMetadata(product: Product): ProductImageMeta {
   const mainImage = product.mainImage || '';
 
@@ -54,43 +69,45 @@ export function getProductImageMetadata(product: Product): ProductImageMeta {
   // 2. Strict Supplier-Provided Verification
   // Only true supplier-provided images (explicitly marked or verified supplier assets tsdi- / ffc-)
   const isSupplierAsset =
-    mainImage.includes('/catalog/tsdi-') ||
-    mainImage.includes('/catalog/ffc-');
+    product.imageStatus === 'supplier-provided' ||
+    (Boolean(mainImage) && (mainImage.includes('/catalog/tsdi-') || mainImage.includes('/catalog/ffc-')));
 
-  if (product.imageStatus === 'supplier-provided' || isSupplierAsset) {
+  if (isSupplierAsset && product.imageStatus !== 'illustrative') {
     return {
       status: 'supplier-provided',
-      label: 'Verified Supplier Photo',
+      label: 'Supplier Consignment Photo',
       shortLabel: 'Supplier Photo',
       badgeColor: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-      isIllustrative: false
+      isIllustrative: false,
+      disclaimer: 'Intake photograph from verified supplier consignment package.'
     };
   }
 
   // 3. Official Manufacturer Matches
+  // Only exact-model matches verified against official manufacturer documentation
   const isManufacturerAsset =
     product.imageStatus === 'manufacturer-matched' ||
-    mainImage.includes('/catalog/linkbasic-') ||
-    mainImage.includes('linkbasic.us') ||
-    product.sku === 'PNA24-UC6';
+    (Boolean(mainImage) && (mainImage.includes('/catalog/linkbasic-') || mainImage.includes('linkbasic.us') || product.sku === 'PNA24-UC6'));
 
-  if (isManufacturerAsset) {
+  if (isManufacturerAsset && product.imageStatus !== 'illustrative') {
     return {
       status: 'manufacturer-matched',
-      label: 'Official Manufacturer Photo',
-      shortLabel: 'Mfg Verified',
+      label: 'Manufacturer Reference Photo',
+      shortLabel: 'Mfg Reference',
       badgeColor: 'bg-blue-50 text-blue-800 border-blue-200',
-      isIllustrative: false
+      isIllustrative: false,
+      disclaimer: 'Equipment photograph matched against manufacturer datasheet and specifications.'
     };
   }
 
-  // 4. Fallback / Illustrative
+  // 4. Fallback / Illustrative / Staff Uploads
+  // Transparently labeled so users/admins know it is a storefront reference photo
   return {
     status: 'illustrative',
-    label: 'Illustrative Image (Model Photo Pending)',
-    shortLabel: 'Illustrative',
+    label: 'Storefront Reference Photo',
+    shortLabel: 'Reference Photo',
     badgeColor: 'bg-amber-50 text-amber-800 border-amber-200',
     isIllustrative: true,
-    disclaimer: 'Illustrative category imagery pending exact-model supplier verification.'
+    disclaimer: 'Product photograph for visual reference. Technical specifications, part numbers, and SRP are authoritative.'
   };
 }

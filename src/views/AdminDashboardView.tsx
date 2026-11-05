@@ -29,12 +29,25 @@ import {
   LogOut,
   RefreshCw,
   UserCheck,
-  Key
+  Key,
+  UploadCloud,
+  Camera,
+  Image as ImageIcon,
+  Star,
+  Loader2,
+  Maximize2
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { Product, RfqStatus, QuotationRequest, StockStatus } from '../types';
+import { Product, RfqStatus, QuotationRequest, StockStatus, ProductImageStatus } from '../types';
 import { isSupabaseConfigured } from '../lib/supabase';
-import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata } from '../utils/productUtils';
+import { 
+  getDisplayBrand, 
+  getProductSalesUnit, 
+  getProductImageMetadata,
+  handleProductImageError,
+  DEFAULT_PRODUCT_FALLBACK_IMAGE
+} from '../utils/productUtils';
+import { uploadProductImageToSupabase } from '../services/supabaseService';
 
 export const AdminDashboardView: React.FC = () => {
   const { 
@@ -99,6 +112,16 @@ export const AdminDashboardView: React.FC = () => {
   const [galleryImagesText, setGalleryImagesText] = useState('');
   const [specificationsList, setSpecificationsList] = useState<Array<{ category: string; label: string; value: string }>>([]);
 
+  // Image Upload, Storage & Gallery State
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadProgressText, setUploadProgressText] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [manualUrlInput, setManualUrlInput] = useState('');
+  const [previewLightboxImage, setPreviewLightboxImage] = useState<string | null>(null);
+  const desktopFileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = React.useRef<HTMLInputElement | null>(null);
+
   const [prodForm, setProdForm] = useState<Partial<Product>>({
     name: '',
     brand: 'Linkbasic',
@@ -115,6 +138,7 @@ export const AdminDashboardView: React.FC = () => {
     warranty: '1-Year Limited Warranty',
     isFeatured: false,
     isPublished: true,
+    imageStatus: 'pending',
     mainImage: '/catalog/image-pending.svg',
     galleryImages: [],
     keySpecs: [],
@@ -165,6 +189,10 @@ export const AdminDashboardView: React.FC = () => {
 
   const handleOpenAddProduct = () => {
     setEditingProduct(null);
+    setUploadError(null);
+    setUploadProgressText(null);
+    setShowUrlInput(false);
+    setManualUrlInput('');
     setProdForm({
       name: '',
       brand: 'Linkbasic',
@@ -181,6 +209,7 @@ export const AdminDashboardView: React.FC = () => {
       warranty: '1-Year Limited Warranty',
       isFeatured: false,
       isPublished: true,
+      imageStatus: 'pending',
       mainImage: '/catalog/image-pending.svg',
       galleryImages: [],
       keySpecs: ['Enterprise Grade Reliability', 'Standard Compliant', 'Certified Performance'],
@@ -202,8 +231,17 @@ export const AdminDashboardView: React.FC = () => {
 
   const handleOpenEditProduct = (prod: Product) => {
     setEditingProduct(prod);
+    setUploadError(null);
+    setUploadProgressText(null);
+    setShowUrlInput(false);
+    setManualUrlInput('');
+
+    const initialStatus: ProductImageStatus = prod.imageStatus || 
+      (prod.mainImage?.includes('-pending.svg') || prod.mainImage?.includes('image-pending.svg') ? 'pending' : 'illustrative');
+
     setProdForm({
       ...prod,
+      imageStatus: initialStatus,
       isPublished: prod.isPublished !== false
     });
     setKeySpecsText((prod.keySpecs || []).join('\n'));
@@ -213,6 +251,128 @@ export const AdminDashboardView: React.FC = () => {
     ]);
     setProdModalError(null);
     setProductModalOpen(true);
+  };
+
+  // Image Upload handler supporting desktop selection, iPhone/Android photos, and live camera
+  const handleUploadFiles = async (files: FileList | File[]) => {
+    if (!files || files.length === 0) return;
+    setUploadingImage(true);
+    setUploadError(null);
+    setUploadProgressText(`Uploading ${files.length > 1 ? `${files.length} photos` : 'photo'} to Supabase Storage ('product-images')...`);
+
+    const newUrls: string[] = [];
+    let uploadFailure: string | null = null;
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      setUploadProgressText(`Uploading photo ${i + 1} of ${files.length} (${file.name})...`);
+      const res = await uploadProductImageToSupabase(file, prodForm.sku);
+      if (res.success && res.publicUrl) {
+        newUrls.push(res.publicUrl);
+      } else {
+        uploadFailure = res.error || `Failed to upload "${file.name}".`;
+        break;
+      }
+    }
+
+    setUploadingImage(false);
+    setUploadProgressText(null);
+
+    if (uploadFailure) {
+      setUploadError(uploadFailure);
+      return;
+    }
+
+    if (newUrls.length > 0) {
+      const currentMain = prodForm.mainImage || '/catalog/image-pending.svg';
+      const isPlaceholder = currentMain.includes('-pending.svg') || currentMain.includes('image-pending.svg') || !currentMain;
+
+      const newMain = isPlaceholder ? newUrls[0] : currentMain;
+      const otherNew = isPlaceholder ? newUrls.slice(1) : newUrls;
+      const existingGallery = (prodForm.galleryImages || []).filter(img => img !== newMain && !img.includes('-pending.svg'));
+      const combinedGallery = Array.from(new Set([newMain, ...existingGallery, ...otherNew]));
+
+      // Do not falsely label uploaded photos as verified manufacturer photos
+      const newStatus: ProductImageStatus = prodForm.imageStatus === 'pending' || !prodForm.imageStatus
+        ? 'illustrative'
+        : prodForm.imageStatus;
+
+      setProdForm(prev => ({
+        ...prev,
+        mainImage: newMain,
+        galleryImages: combinedGallery,
+        imageStatus: newStatus
+      }));
+      setGalleryImagesText(combinedGallery.filter(img => img !== newMain).join('\n'));
+    }
+  };
+
+  const handleSetMainImage = (targetUrl: string) => {
+    const existing = Array.from(new Set([
+      prodForm.mainImage,
+      ...(prodForm.galleryImages || [])
+    ])).filter(img => Boolean(img) && !img?.includes('-pending.svg')) as string[];
+
+    const otherGalleries = existing.filter(img => img !== targetUrl);
+    setProdForm(prev => ({
+      ...prev,
+      mainImage: targetUrl,
+      galleryImages: [targetUrl, ...otherGalleries]
+    }));
+    setGalleryImagesText(otherGalleries.join('\n'));
+  };
+
+  const handleRemoveImage = (targetUrl: string) => {
+    const all = Array.from(new Set([
+      prodForm.mainImage,
+      ...(prodForm.galleryImages || [])
+    ])).filter(img => Boolean(img) && !img?.includes('-pending.svg')) as string[];
+
+    const remaining = all.filter(img => img !== targetUrl);
+
+    if (remaining.length === 0) {
+      setProdForm(prev => ({
+        ...prev,
+        mainImage: '/catalog/image-pending.svg',
+        galleryImages: [],
+        imageStatus: 'pending'
+      }));
+      setGalleryImagesText('');
+    } else {
+      const newMain = prodForm.mainImage === targetUrl ? remaining[0] : prodForm.mainImage!;
+      const newGallery = remaining.filter(img => img !== newMain);
+      setProdForm(prev => ({
+        ...prev,
+        mainImage: newMain,
+        galleryImages: [newMain, ...newGallery]
+      }));
+      setGalleryImagesText(newGallery.join('\n'));
+    }
+  };
+
+  const handleAddManualUrl = () => {
+    const url = manualUrlInput.trim();
+    if (!url) return;
+    if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('/catalog/')) {
+      setUploadError('Please enter a valid HTTP/HTTPS URL or local /catalog/ path.');
+      return;
+    }
+    setUploadError(null);
+    const currentMain = prodForm.mainImage || '/catalog/image-pending.svg';
+    const isPlaceholder = currentMain.includes('-pending.svg') || currentMain.includes('image-pending.svg');
+    const newMain = isPlaceholder ? url : currentMain;
+    const existingGallery = (prodForm.galleryImages || []).filter(img => img !== newMain && !img.includes('-pending.svg'));
+    const combined = Array.from(new Set([newMain, ...existingGallery, url]));
+
+    setProdForm(prev => ({
+      ...prev,
+      mainImage: newMain,
+      galleryImages: combined,
+      imageStatus: prev.imageStatus === 'pending' ? 'illustrative' : prev.imageStatus
+    }));
+    setGalleryImagesText(combined.filter(img => img !== newMain).join('\n'));
+    setManualUrlInput('');
+    setShowUrlInput(false);
   };
 
   const handleTogglePublish = async (prod: Product) => {
@@ -300,6 +460,8 @@ export const AdminDashboardView: React.FC = () => {
 
     const mainImg = prodForm.mainImage?.trim() || '/catalog/image-pending.svg';
     const combinedGallery = Array.from(new Set([mainImg, ...parsedAdditionalGalleries]));
+    const computedStatus: ProductImageStatus = prodForm.imageStatus || 
+      (mainImg.includes('-pending.svg') || mainImg.includes('image-pending.svg') ? 'pending' : 'illustrative');
 
     const validSpecs = specificationsList.filter(s => s.label.trim() && s.value.trim());
 
@@ -313,6 +475,7 @@ export const AdminDashboardView: React.FC = () => {
           categoryName,
           mainImage: mainImg,
           galleryImages: combinedGallery,
+          imageStatus: computedStatus,
           keySpecs: parsedKeySpecs,
           specifications: validSpecs,
           isPublished: prodForm.isPublished !== false
@@ -330,6 +493,7 @@ export const AdminDashboardView: React.FC = () => {
           categoryName,
           mainImage: mainImg,
           galleryImages: combinedGallery,
+          imageStatus: computedStatus,
           keySpecs: parsedKeySpecs,
           specifications: validSpecs,
           isPublished: prodForm.isPublished !== false
@@ -1070,6 +1234,7 @@ export const AdminDashboardView: React.FC = () => {
                               src={prod.mainImage}
                               alt={prod.name}
                               className="w-10 h-10 object-contain rounded border border-gray-200 bg-white shrink-0"
+                              onError={handleProductImageError}
                             />
                             <div className="min-w-0">
                               <span 
@@ -1511,45 +1676,233 @@ export const AdminDashboardView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Images */}
-              <div className="space-y-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                <div className="flex items-start gap-4">
-                  <div className="flex-1">
-                    <label className="font-bold text-gray-700 block mb-1">Main Product Photograph URL *</label>
-                    <input
-                      type="url"
-                      required
-                      value={prodForm.mainImage}
-                      onChange={(e) => setProdForm({ ...prodForm, mainImage: e.target.value })}
-                      placeholder="https://... image URL"
-                      className="w-full p-2 border border-gray-300 rounded bg-white focus:outline-none focus:border-[#B5121B]"
-                    />
-                  </div>
-                  {prodForm.mainImage && (
-                    <div className="w-14 h-14 rounded border border-gray-200 bg-white overflow-hidden shrink-0 flex items-center justify-center p-1">
-                      <img
-                        src={prodForm.mainImage}
-                        alt="Preview"
-                        className="w-full h-full object-contain"
-                        onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
-                      />
-                    </div>
-                  )}
-                </div>
+              {/* Product Photography & Gallery Management */}
+              {(() => {
+                const activeImages = Array.from(new Set([
+                  prodForm.mainImage,
+                  ...(prodForm.galleryImages || [])
+                ])).filter(img => Boolean(img) && !img?.includes('-pending.svg') && !img?.includes('image-pending.svg')) as string[];
 
-                <div>
-                  <label className="font-bold text-gray-700 block mb-1">
-                    Additional Gallery Image URLs (one URL per line)
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={galleryImagesText}
-                    onChange={(e) => setGalleryImagesText(e.target.value)}
-                    placeholder="https://example.com/photo2.jpg&#10;https://example.com/photo3.jpg"
-                    className="w-full p-2 border border-gray-300 rounded bg-white font-mono text-[11px] focus:outline-none focus:border-[#B5121B]"
-                  />
-                </div>
-              </div>
+                return (
+                  <div className="space-y-3 p-4 bg-gray-50/90 rounded-xl border border-gray-200">
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div>
+                        <label className="font-bold text-xs text-gray-800 flex items-center gap-1.5">
+                          <ImageIcon className="w-4 h-4 text-[#B5121B]" />
+                          <span>Product Photography & Gallery</span>
+                        </label>
+                        <p className="text-[11px] text-gray-500">
+                          Upload genuine equipment photos to Supabase Storage (<code className="text-gray-700 bg-gray-200/70 px-1 rounded">product-images</code> bucket).
+                        </p>
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-2">
+                        {/* Hidden file inputs */}
+                        <input
+                          ref={desktopFileInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png,image/webp,image/svg+xml,image/gif,image/avif"
+                          multiple
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files) handleUploadFiles(e.target.files);
+                            e.target.value = '';
+                          }}
+                        />
+                        <input
+                          ref={cameraInputRef}
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          className="hidden"
+                          onChange={(e) => {
+                            if (e.target.files) handleUploadFiles(e.target.files);
+                            e.target.value = '';
+                          }}
+                        />
+
+                        <button
+                          type="button"
+                          disabled={uploadingImage}
+                          onClick={() => desktopFileInputRef.current?.click()}
+                          className="px-3 py-1.5 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-2xs disabled:opacity-50 cursor-pointer"
+                          title="Upload product photo from desktop or mobile photo library"
+                        >
+                          <UploadCloud className="w-3.5 h-3.5" />
+                          <span>Upload Photo</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={uploadingImage}
+                          onClick={() => cameraInputRef.current?.click()}
+                          className="px-3 py-1.5 bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-2xs disabled:opacity-50 cursor-pointer"
+                          title="Capture photo using camera (iPhone / Android / Tablet)"
+                        >
+                          <Camera className="w-3.5 h-3.5 text-gray-600" />
+                          <span className="hidden sm:inline">Camera</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowUrlInput(!showUrlInput)}
+                          className="px-2.5 py-1.5 bg-white hover:bg-gray-100 text-gray-600 border border-gray-300 text-xs font-semibold rounded-lg transition-colors cursor-pointer"
+                          title="Enter direct image URL or local catalog path"
+                        >
+                          {showUrlInput ? 'Cancel URL' : '+ Link URL'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Upload progress & error notices */}
+                    {uploadingImage && (
+                      <div className="p-2.5 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-xs text-[#B5121B] font-medium animate-pulse">
+                        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                        <span>{uploadProgressText || 'Uploading photograph to Supabase Storage...'}</span>
+                      </div>
+                    )}
+
+                    {uploadError && (
+                      <div className="p-2.5 bg-rose-50 border border-rose-200 rounded-lg flex items-start gap-2 text-xs text-rose-800">
+                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                        <div className="flex-1">
+                          <span className="font-bold">Upload Error: </span>
+                          <span>{uploadError}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setUploadError(null)}
+                          className="text-rose-500 hover:text-rose-800 text-xs font-bold"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Manual URL Input Bar */}
+                    {showUrlInput && (
+                      <div className="p-2.5 bg-white rounded-lg border border-gray-300 flex items-center gap-2 shadow-2xs">
+                        <input
+                          type="text"
+                          value={manualUrlInput}
+                          onChange={(e) => setManualUrlInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddManualUrl(); } }}
+                          placeholder="https://... or /catalog/... image URL"
+                          className="flex-1 text-xs p-1.5 border border-gray-300 rounded focus:outline-none focus:border-[#B5121B]"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleAddManualUrl}
+                          className="px-3 py-1.5 bg-gray-900 text-white text-xs font-bold rounded hover:bg-gray-800 transition-colors cursor-pointer"
+                        >
+                          Add URL
+                        </button>
+                      </div>
+                    )}
+
+                    {/* Active Image Cards Gallery */}
+                    {activeImages.length === 0 ? (
+                      <div className="p-6 border-2 border-dashed border-gray-300 rounded-lg text-center bg-white space-y-2">
+                        <div className="w-12 h-12 mx-auto rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                          <ImageIcon className="w-6 h-6" />
+                        </div>
+                        <p className="text-xs font-bold text-gray-700">Official Equipment Photo Pending</p>
+                        <p className="text-[11px] text-gray-500 max-w-sm mx-auto">
+                          Currently using neutral technical SVG placeholder (<code className="text-gray-600 bg-gray-100 px-1 rounded">{prodForm.mainImage || '/catalog/image-pending.svg'}</code>). Click <strong>Upload Photo</strong> or <strong>Camera</strong> to add high-resolution photos.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between text-[11px] text-gray-500">
+                          <span>Active Photographs ({activeImages.length})</span>
+                          <span>Click photo to enlarge preview</span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                          {activeImages.map((imgUrl, idx) => {
+                            const isMain = imgUrl === prodForm.mainImage;
+                            return (
+                              <div
+                                key={idx}
+                                className={`relative group bg-white rounded-lg border p-2 flex flex-col justify-between transition-all ${
+                                  isMain ? 'border-[#B5121B] ring-2 ring-red-100 shadow-sm' : 'border-gray-200 hover:border-gray-300'
+                                }`}
+                              >
+                                {/* Thumbnail */}
+                                <div
+                                  onClick={() => setPreviewLightboxImage(imgUrl)}
+                                  className="w-full h-24 rounded bg-gray-50/80 flex items-center justify-center p-1 cursor-pointer overflow-hidden relative"
+                                  title="Click to view full-size preview"
+                                >
+                                  <img
+                                    src={imgUrl}
+                                    alt={`Photo ${idx + 1}`}
+                                    className="max-h-full max-w-full object-contain"
+                                    onError={handleProductImageError}
+                                  />
+                                  <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
+                                    <Maximize2 className="w-4 h-4" />
+                                  </div>
+                                </div>
+
+                                {/* Badges & Actions */}
+                                <div className="mt-2 flex items-center justify-between gap-1 text-[11px]">
+                                  {isMain ? (
+                                    <span className="inline-flex items-center gap-1 font-bold text-[#B5121B] text-[10px]">
+                                      <Star className="w-3 h-3 fill-[#B5121B]" />
+                                      <span>Main Photo</span>
+                                    </span>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSetMainImage(imgUrl)}
+                                      className="text-gray-600 hover:text-[#B5121B] font-semibold text-[10px] hover:underline cursor-pointer"
+                                    >
+                                      Set as Main
+                                    </button>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveImage(imgUrl)}
+                                    className="text-gray-400 hover:text-rose-600 p-1 rounded transition-colors cursor-pointer"
+                                    title="Remove photo"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Image Source & Verification Classification */}
+                    <div className="pt-3 border-t border-gray-200 space-y-1">
+                      <div className="flex items-center justify-between">
+                        <label className="font-bold text-xs text-gray-700">
+                          Photograph Source & Verification Classification
+                        </label>
+                        <span className="text-[10px] text-gray-500 font-mono">Column: image_status</span>
+                      </div>
+                      <select
+                        value={prodForm.imageStatus || 'pending'}
+                        onChange={(e) => setProdForm({ ...prodForm, imageStatus: e.target.value as ProductImageStatus })}
+                        className="w-full p-2 border border-gray-300 rounded-lg bg-white text-xs font-semibold text-gray-800 focus:outline-none focus:border-[#B5121B]"
+                      >
+                        <option value="pending">Official Photo Pending — Neutral equipment silhouette placeholder</option>
+                        <option value="illustrative">Storefront Reference Photo — Uploaded staff / facility photography</option>
+                        <option value="supplier-provided">Supplier Consignment Photo — Verified delivery package intake</option>
+                        <option value="manufacturer-matched">Manufacturer Reference Photo — Exact model verified against datasheet</option>
+                      </select>
+                      <p className="text-[10px] text-gray-500">
+                        <strong>Catalog Discipline:</strong> Uploaded staff photographs are classified as Storefront Reference Photos. Only select "Manufacturer Reference Photo" when exact model specifications, port count, and color have been verified against official manufacturer documentation.
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Descriptions */}
               <div>
@@ -1728,6 +2081,7 @@ export const AdminDashboardView: React.FC = () => {
                 src={productToDelete.mainImage}
                 alt={productToDelete.name}
                 className="w-12 h-12 object-contain bg-white rounded border border-gray-200 p-0.5 shrink-0"
+                onError={handleProductImageError}
               />
               <div className="min-w-0 text-xs">
                 <p className="font-bold text-gray-900 truncate">{productToDelete.name}</p>
@@ -1782,6 +2136,44 @@ export const AdminDashboardView: React.FC = () => {
                     <span>Delete Permanently</span>
                   </>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox Image Preview Modal */}
+      {previewLightboxImage && (
+        <div 
+          className="fixed inset-0 z-60 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setPreviewLightboxImage(null)}
+        >
+          <div 
+            className="relative max-w-3xl max-h-[90vh] bg-white rounded-2xl p-4 shadow-2xl overflow-hidden flex flex-col items-center" 
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setPreviewLightboxImage(null)}
+              className="absolute top-3 right-3 p-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors cursor-pointer z-10"
+              title="Close preview"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="w-full max-h-[75vh] flex items-center justify-center p-2 bg-gray-50/50 rounded-xl overflow-hidden">
+              <img
+                src={previewLightboxImage}
+                alt="Enlarged Preview"
+                className="max-h-[72vh] max-w-full object-contain"
+                onError={handleProductImageError}
+              />
+            </div>
+            <div className="w-full mt-3 pt-2 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
+              <span className="truncate font-mono text-[11px] max-w-md">{previewLightboxImage}</span>
+              <button
+                onClick={() => setPreviewLightboxImage(null)}
+                className="px-3 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg cursor-pointer transition-colors"
+              >
+                Close
               </button>
             </div>
           </div>

@@ -124,6 +124,9 @@ CREATE TABLE IF NOT EXISTS public.products (
     is_new_arrival BOOLEAN DEFAULT false,
     is_published BOOLEAN DEFAULT true,
     is_demo BOOLEAN DEFAULT false,
+    image_status VARCHAR(50) DEFAULT 'pending' CHECK (
+        image_status IN ('supplier-provided', 'manufacturer-matched', 'pending', 'illustrative')
+    ),
     main_image TEXT NOT NULL,
     gallery_images TEXT[] DEFAULT '{}',
     key_specs TEXT[] DEFAULT '{}',
