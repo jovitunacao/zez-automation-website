@@ -434,7 +434,7 @@ export const ProductDetailView: React.FC = () => {
                 <div className="p-4 bg-gray-50 rounded-lg border border-gray-200 space-y-1">
                   <h4 className="font-bold text-gray-900">ZEZ Presales Assistance:</h4>
                   <p className="text-gray-600">
-                    Our Pasig City sales engineering team provides complimentary bill-of-materials sizing and compatibility verification prior to quote confirmation.
+                    Our technical engineering team provides complimentary bill-of-materials sizing, site compatibility review, and infrastructure verification prior to quote confirmation.
                   </p>
                 </div>
               </div>
@@ -523,7 +523,7 @@ export const ProductDetailView: React.FC = () => {
               <div className="space-y-2 pt-2">
                 <h4 className="font-bold text-gray-900">RMA Depots & Service Hours:</h4>
                 <p className="text-gray-600">
-                  Main Depot: Ortigas Center, Pasig City · Open Monday to Friday 8:30 AM to 5:30 PM.
+                  Engineering & Logistics Hubs: Davao City & Zamboanga City · Monday to Friday 8:30 AM to 5:30 PM.
                 </p>
               </div>
             </div>

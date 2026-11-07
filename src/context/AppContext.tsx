@@ -224,7 +224,7 @@ const INITIAL_RFQS: QuotationRequest[] = [
       }
     ],
     totalEstimatedPhp: 206100,
-    adminNotes: 'Checking warehouse stock in Pasig depot; stock confirmed for 10 units, 2 units arriving Nov 3.',
+    adminNotes: 'Checking inventory stock in Davao logistics hub; stock confirmed for 10 units, 2 units arriving Nov 3.',
     assignedSpecialist: 'Rina Dela Cruz (Security Systems Lead)',
     validUntil: '2026-11-30',
     isDemo: true

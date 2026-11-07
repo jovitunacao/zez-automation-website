@@ -85,8 +85,8 @@ export const RfqCheckoutView: React.FC = () => {
       companyName: 'Metro Build & Telecommunications Corp.',
       email: 'm.hernandez@metrobuild.ph',
       mobileNumber: '+63 917 889 4210',
-      deliveryCityProvince: 'Pasig City, Metro Manila',
-      deliveryAddress: 'Tower 2, Ortigas Commercial Hub, Pasig City',
+      deliveryCityProvince: 'Davao City, Davao del Sur',
+      deliveryAddress: 'Unit 402, Enterprise IT Tower, J.P. Laurel Avenue, Bajada, Davao City',
       tinNumber: '109-342-876-000',
       customerType: 'Contractor',
       preferredContactMethod: 'Email',
@@ -362,7 +362,7 @@ export const RfqCheckoutView: React.FC = () => {
                 <input
                   required
                   type="text"
-                  placeholder="e.g. Pasig City / Taguig / Clark / Cebu"
+                  placeholder="e.g. Davao City / Zamboanga / Cebu / Metro Manila"
                   value={formData.deliveryCityProvince}
                   onChange={(e) => setFormData({ ...formData, deliveryCityProvince: e.target.value })}
                   className="w-full p-2.5 bg-[#F4F5F7] border border-gray-200 rounded-lg focus:outline-none focus:border-[#B5121B] focus:bg-white"

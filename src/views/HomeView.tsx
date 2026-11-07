@@ -545,7 +545,7 @@ export const HomeView: React.FC = () => {
         {/* Products Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {filteredFeatured.map((prod) => {
-            const displayBrand = getDisplayBrand(prod);
+            const displayBrand = getDisplayBrand(prod.brand);
             const salesUnit = getProductSalesUnit(prod);
             const imgMeta = getProductImageMetadata(prod);
 
@@ -570,12 +570,12 @@ export const HomeView: React.FC = () => {
 
                     {/* Stock Status Badge */}
                     <span className="absolute top-2 left-2 bg-emerald-50 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-200">
-                      {prod.inStock ? 'In Stock' : 'Order-to-Stock'}
+                      {prod.stockStatus === 'In Stock' ? 'In Stock' : prod.stockStatus || 'Available'}
                     </span>
 
                     {/* Photo Source Classification */}
                     <span className="absolute bottom-2 right-2 bg-black/60 text-white text-[9px] font-mono px-1.5 py-0.5 rounded backdrop-blur-xs">
-                      {imgMeta.badgeText}
+                      {imgMeta.shortLabel}
                     </span>
                   </div>
 
