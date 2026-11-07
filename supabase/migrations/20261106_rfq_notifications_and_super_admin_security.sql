@@ -5,18 +5,20 @@
 --
 -- PURPOSE:
 --   1. Restrict administrator management strictly to authorized Super Admins.
---   2. Add 'receive_rfq_notifications' preference to administrator_users (with safe IF NOT EXISTS).
+--   2. Add 'receive_rfq_notifications' preference to administrator_users (safe IF NOT EXISTS).
 --   3. Safeguard against deleting or deactivating the last active Super Admin.
 --   4. Prevent privilege escalation (non-super admins cannot alter roles, active status, or profiles).
 --   5. Create 'rfq_notification_logs' table with bounded retries and crash-recovery support.
 --   6. Create 'email_quota_tracking' table to respect Resend Free tier limits (100/day, 3,000/month).
---   7. Implement transaction-safe email quota reservation (reserve_email_quota) and release RPCs.
+--   7. Implement transaction-scoped monthly serialization via pg_advisory_xact_lock in reserve_email_quota
+--      and release_email_quota, preventing concurrent month-limit breaches across different dates.
 --   8. Implement crash-recovery atomic row claiming (claim_pending_rfq_notifications) using FOR UPDATE SKIP LOCKED.
 --   9. Secure server-side dispatch (dispatch_rfq_notification_server) storing credentials in private schema or vault.
---  10. Restrict execution of privileged SECURITY DEFINER functions with PostgreSQL role grants and robust
---      is_service_role() caller checks so ordinary users cannot manipulate queues or quotas.
---  11. Ensure customer RFQ submission NEVER fails or aborts if email delivery encounters errors.
---  12. Fully non-destructive and backward-compatible with existing 46 products, RFQs, and admin accounts.
+--  10. Enforce strict PostgreSQL role-based authorization: functions are REVOKED from PUBLIC/anon/authenticated
+--      and GRANTED exclusively to service_role, with defense-in-depth is_service_role() caller validation.
+--  11. Preserve active Super Admin login while strictly preventing inactive admins from reading directory data.
+--  12. Ensure customer RFQ submission NEVER fails or aborts if email delivery encounters errors.
+--  13. Fully non-destructive and backward-compatible with existing 46 products, RFQs, and admin accounts.
 --
 -- DO NOT EXECUTE AUTOMATICALLY. Review in Supabase SQL Editor before applying.
 -- ==============================================================================
@@ -87,18 +89,22 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 STABLE
 AS $$
+DECLARE
+    v_jwt_role TEXT;
 BEGIN
     -- 1. Direct superuser / maintenance session (e.g., Supabase SQL Editor, pg_cron)
-    IF session_user IN ('postgres', 'supabase_admin', 'service_role') THEN
+    IF session_user IN ('postgres', 'supabase_admin') THEN
         RETURN true;
     END IF;
 
     -- 2. PostgREST JWT claim role passed by Edge Functions or service_role API callers
-    IF COALESCE(
+    v_jwt_role := COALESCE(
         NULLIF(current_setting('request.jwt.claim.role', true), ''),
         (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'),
         auth.role()
-    ) = 'service_role' THEN
+    );
+
+    IF v_jwt_role = 'service_role' THEN
         RETURN true;
     END IF;
 
@@ -113,26 +119,33 @@ GRANT EXECUTE ON FUNCTION public.is_service_role() TO anon, authenticated, servi
 
 -- ------------------------------------------------------------------------------
 -- 3. TIGHTEN ROW LEVEL SECURITY ON public.administrator_users
---    Preserves login functionality while restricting management strictly to Super Admins.
+--    Preserves active Super Admin login while strictly preventing inactive admins
+--    or unauthenticated callers from accessing protected directory data.
 -- ------------------------------------------------------------------------------
 ALTER TABLE public.administrator_users ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Admins can view and manage admin users" ON public.administrator_users;
 DROP POLICY IF EXISTS "Admins view administrator directory" ON public.administrator_users;
+DROP POLICY IF EXISTS "Active admins view administrator directory" ON public.administrator_users;
 DROP POLICY IF EXISTS "Super admins insert administrators" ON public.administrator_users;
 DROP POLICY IF EXISTS "Super admins update administrators" ON public.administrator_users;
 DROP POLICY IF EXISTS "Admins update administrator records" ON public.administrator_users;
 DROP POLICY IF EXISTS "Super admins delete administrators" ON public.administrator_users;
 
--- 3.1 SELECT: Any active administrator can view the directory.
---     Crucially, (auth.uid() = id) ensures an admin can always read their own profile row upon login.
-CREATE POLICY "Admins view administrator directory"
+-- 3.1 SELECT: Active administrators can view the directory.
+--     (auth.uid() = id AND is_active = true) ensures an active admin can read their own row upon login.
+--     public.is_admin() grants directory visibility to all verified active administrators.
+--     Inactive administrators (is_active = false) evaluate to FALSE on both branches and are denied access.
+CREATE POLICY "Active admins view administrator directory"
 ON public.administrator_users
 FOR SELECT
 TO authenticated
-USING (auth.uid() = id OR public.is_admin());
+USING (
+    (auth.uid() = id AND is_active = true) 
+    OR public.is_admin()
+);
 
--- 3.2 INSERT: Strictly Super Admins
+-- 3.2 INSERT: Strictly active Super Admins
 CREATE POLICY "Super admins insert administrators"
 ON public.administrator_users
 FOR INSERT
@@ -147,7 +160,7 @@ TO authenticated
 USING (public.is_super_admin() OR (auth.uid() = id AND public.is_admin()))
 WITH CHECK (public.is_super_admin() OR (auth.uid() = id AND public.is_admin()));
 
--- 3.4 DELETE: Strictly Super Admins
+-- 3.4 DELETE: Strictly active Super Admins
 CREATE POLICY "Super admins delete administrators"
 ON public.administrator_users
 FOR DELETE
@@ -167,7 +180,7 @@ DECLARE
     v_active_super_admins INTEGER;
     v_is_authorized_manager BOOLEAN;
 BEGIN
-    -- Authorized managers are Super Admins or backend service_role (e.g., manage-admin Edge Function)
+    -- Authorized managers are active Super Admins or backend service_role (e.g., manage-admin Edge Function)
     v_is_authorized_manager := public.is_super_admin() OR public.is_service_role();
 
     -- On UPDATE:
@@ -312,7 +325,8 @@ USING (public.is_admin());
 
 -- ------------------------------------------------------------------------------
 -- 7. TRANSACTION-SAFE QUOTA RESERVATION & RELEASE FUNCTIONS
---    Restricted to service_role to eliminate concurrent quota race conditions
+--    Uses transaction-scoped monthly serialization via pg_advisory_xact_lock
+--    Restricted strictly to service_role and authorized Super Admins
 -- ------------------------------------------------------------------------------
 
 -- 7.1 reserve_email_quota: Atomically checks and reserves quota slots before sending
@@ -328,6 +342,7 @@ AS $$
 DECLARE
     v_first_day_of_month DATE;
     v_next_month_day DATE;
+    v_month_key INT;
     v_today_reserved INTEGER := 0;
     v_month_reserved INTEGER := 0;
     v_daily_limit CONSTANT INTEGER := 100;
@@ -346,8 +361,14 @@ BEGIN
 
     v_first_day_of_month := DATE_TRUNC('month', p_date)::DATE;
     v_next_month_day := (v_first_day_of_month + INTERVAL '1 month')::DATE;
+    v_month_key := (EXTRACT(YEAR FROM v_first_day_of_month)::INT * 100 + EXTRACT(MONTH FROM v_first_day_of_month)::INT);
 
-    -- Ensure row exists for target date
+    -- 1. TRANSACTION-SCOPED MONTHLY SERIALIZATION (pg_advisory_xact_lock)
+    -- Serializes all quota reservations and releases within the same calendar month across all dates.
+    -- Prevents two concurrent transactions for different dates from simultaneously exceeding the monthly limit.
+    PERFORM pg_advisory_xact_lock(hashtext('zez_email_quota_monthly'), v_month_key);
+
+    -- 2. Ensure row exists for target date
     INSERT INTO public.email_quota_tracking (
         date_key,
         sent_count,
@@ -362,24 +383,19 @@ BEGIN
         TIMEZONE('utc'::text, NOW())
     ) ON CONFLICT (date_key) DO NOTHING;
 
-    -- Deterministic row locking across the month in ascending date order to prevent concurrent race conditions & deadlocks
-    PERFORM 1
-    FROM public.email_quota_tracking
-    WHERE date_key >= v_first_day_of_month
-      AND date_key < v_next_month_day
-    ORDER BY date_key ASC
-    FOR UPDATE;
-
+    -- 3. Row lock on the specific date row for daily counter protection
     SELECT COALESCE(sent_count, 0) INTO v_today_reserved
     FROM public.email_quota_tracking
-    WHERE date_key = p_date;
+    WHERE date_key = p_date
+    FOR UPDATE;
 
+    -- 4. Calculate accurate monthly total across all dates in this month
     SELECT COALESCE(SUM(sent_count), 0) INTO v_month_reserved
     FROM public.email_quota_tracking
     WHERE date_key >= v_first_day_of_month
       AND date_key < v_next_month_day;
 
-    -- Evaluate daily ceiling
+    -- 5. Evaluate daily limit (100 emails/day)
     IF (v_today_reserved + p_count) > v_daily_limit THEN
         RETURN jsonb_build_object(
             'allowed', false,
@@ -391,7 +407,7 @@ BEGIN
         );
     END IF;
 
-    -- Evaluate monthly ceiling
+    -- 6. Evaluate monthly limit (3,000 emails/month)
     IF (v_month_reserved + p_count) > v_monthly_limit THEN
         RETURN jsonb_build_object(
             'allowed', false,
@@ -403,7 +419,7 @@ BEGIN
         );
     END IF;
 
-    -- Atomically reserve quota by incrementing sent_count
+    -- 7. Atomically reserve quota slots
     UPDATE public.email_quota_tracking
     SET sent_count = sent_count + p_count,
         last_sent_at = TIMEZONE('utc'::text, NOW()),
@@ -437,6 +453,9 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
+DECLARE
+    v_first_day_of_month DATE;
+    v_month_key INT;
 BEGIN
     IF NOT (public.is_service_role() OR public.is_super_admin()) THEN
         RAISE EXCEPTION 'Access Denied: release_email_quota can only be invoked by service_role or Super Admins.';
@@ -445,6 +464,12 @@ BEGIN
     IF p_count < 1 THEN
         p_count := 1;
     END IF;
+
+    v_first_day_of_month := DATE_TRUNC('month', p_date)::DATE;
+    v_month_key := (EXTRACT(YEAR FROM v_first_day_of_month)::INT * 100 + EXTRACT(MONTH FROM v_first_day_of_month)::INT);
+
+    -- Consistent synchronization: Acquire the exact same transaction-scoped monthly advisory lock
+    PERFORM pg_advisory_xact_lock(hashtext('zez_email_quota_monthly'), v_month_key);
 
     UPDATE public.email_quota_tracking
     SET sent_count = GREATEST(0, sent_count - p_count),
@@ -958,7 +983,6 @@ COMMIT;
 -- ==============================================================================
 --
 -- Verification 1: Confirm permissions and security settings on privileged functions
--- Expected: All functions present with prosecdef = true (SECURITY DEFINER)
 SELECT 
     proname, 
     prosecdef,
@@ -980,13 +1004,11 @@ WHERE proname IN (
 ORDER BY proname;
 
 -- Verification 2: Check administrator_users RLS policies
--- Expected: "Admins view administrator directory" permits (auth.uid() = id OR public.is_admin())
 SELECT policyname, cmd, roles, qual, with_check 
 FROM pg_policies 
 WHERE schemaname = 'public' AND tablename = 'administrator_users';
 
 -- Verification 3: Confirm newly created tables and columns exist
--- Expected: rfq_notification_logs, email_quota_tracking, and receive_rfq_notifications column exist
 SELECT table_name, column_name, data_type, is_nullable
 FROM information_schema.columns
 WHERE table_schema = 'public' 
@@ -997,35 +1019,10 @@ SELECT table_schema, table_name
 FROM information_schema.tables 
 WHERE table_name IN ('rfq_notification_logs', 'email_quota_tracking', 'app_secrets');
 
--- Verification 4: Verify existing administrator accounts are completely intact
--- Expected: Count matches existing active administrators, none deleted or altered
+-- Verification 4: Confirm all existing administrator accounts are intact
 SELECT id, email, full_name, role, is_active, receive_rfq_notifications
 FROM public.administrator_users
 ORDER BY created_at ASC;
 
 -- Verification 5: Dry-run test of check_email_quota
--- Expected: Returns JSON object with today_sent, month_sent, daily_limit: 100, monthly_limit: 3000, can_send: true
 SELECT public.check_email_quota();
-
--- ==============================================================================
--- ROLLBACK PROCEDURE (For reference only - do not run unless reverting)
--- ==============================================================================
-/*
-BEGIN;
-  DROP TRIGGER IF EXISTS trg_queue_rfq_notifications ON public.quotation_requests;
-  DROP FUNCTION IF EXISTS public.queue_rfq_notifications();
-  DROP FUNCTION IF EXISTS public.dispatch_rfq_notification_server(VARCHAR);
-  DROP FUNCTION IF EXISTS public.claim_pending_rfq_notifications(VARCHAR, INTEGER);
-  DROP FUNCTION IF EXISTS public.retry_failed_rfq_notification(UUID);
-  DROP FUNCTION IF EXISTS public.get_notification_stats();
-  DROP FUNCTION IF EXISTS public.reserve_email_quota(INTEGER, DATE);
-  DROP FUNCTION IF EXISTS public.release_email_quota(INTEGER, DATE);
-  DROP FUNCTION IF EXISTS public.increment_email_quota_counter(DATE);
-  DROP FUNCTION IF EXISTS public.check_email_quota(DATE);
-  DROP FUNCTION IF EXISTS public.is_service_role();
-  DROP TABLE IF EXISTS public.rfq_notification_logs CASCADE;
-  DROP TABLE IF EXISTS public.email_quota_tracking CASCADE;
-  DROP TABLE IF EXISTS private.app_secrets CASCADE;
-  -- Note: Do NOT drop public.administrator_users or public.quotation_requests
-COMMIT;
-*/
