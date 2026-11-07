@@ -7,7 +7,8 @@ import {
   QuotationRequest, 
   RfqCustomerInfo, 
   SiteSettings, 
-  FilterState 
+  FilterState,
+  AdminRole 
 } from '../types';
 import { CONSIGNMENT_PRODUCTS } from '../data/consignmentProducts';
 import { CATEGORIES } from '../data/categories';
@@ -22,7 +23,8 @@ import {
   signInAdministrator,
   signOutAdministrator,
   checkActiveAdminSession,
-  fetchAdminRfqsFromSupabase
+  fetchAdminRfqsFromSupabase,
+  updateOwnNotificationPreference
 } from '../services/supabaseService';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 
@@ -42,7 +44,8 @@ export interface AdminUserSession {
   id: string;
   email: string;
   fullName?: string;
-  role?: string;
+  role?: AdminRole;
+  receiveRfqNotifications?: boolean;
 }
 
 interface AppContextType {
@@ -110,9 +113,11 @@ interface AppContextType {
   // Supabase Database & Admin Authentication
   isDbConnected: boolean;
   adminUser: AdminUserSession | null;
+  isSuperAdmin: boolean;
   isAdminAuthenticated: boolean;
   adminLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   adminLogout: () => Promise<void>;
+  updateOwnNotificationPreference: (enabled: boolean) => Promise<{ success: boolean; error?: string }>;
 }
 
 const INITIAL_SETTINGS: SiteSettings = {
@@ -807,6 +812,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSiteSettings(prev => ({ ...prev, ...newSettings }));
   };
 
+  const isSuperAdmin = adminUser?.role === 'super_admin';
+
+  const handleUpdateOwnNotificationPreference = async (enabled: boolean): Promise<{ success: boolean; error?: string }> => {
+    const res = await updateOwnNotificationPreference(enabled);
+    if (res.success && adminUser) {
+      setAdminUser(prev => prev ? { ...prev, receiveRfqNotifications: enabled } : null);
+    }
+    return res;
+  };
+
   // Customer RFQs
   const customerRfqs = rfqRequests.filter(
     rfq => currentCustomer && rfq.customer.email.toLowerCase() === currentCustomer.email.toLowerCase()
@@ -862,9 +877,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateSiteSettings,
         isDbConnected,
         adminUser,
+        isSuperAdmin,
         isAdminAuthenticated,
         adminLogin,
-        adminLogout
+        adminLogout,
+        updateOwnNotificationPreference: handleUpdateOwnNotificationPreference
       }}
     >
       {children}

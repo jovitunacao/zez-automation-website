@@ -1,5 +1,12 @@
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { QuotationRequest, Product } from '../types';
+import { 
+  QuotationRequest, 
+  Product, 
+  AdministratorUser, 
+  AdminRole, 
+  RfqNotificationLog, 
+  NotificationQuotaStats 
+} from '../types';
 
 export interface ContactInquiryPayload {
   name: string;
@@ -17,7 +24,8 @@ export interface AdminAuthResult {
     id: string;
     email: string;
     fullName?: string;
-    role?: string;
+    role?: AdminRole;
+    receiveRfqNotifications?: boolean;
   };
   error?: string;
 }
@@ -320,6 +328,9 @@ export async function syncRfqToSupabase(rfq: QuotationRequest): Promise<{
     const serverRfqId = rpcData?.rfq_id || rfq.id;
     console.info(`[ZEZ Supabase] Atomic quotation successfully persisted with reference ID: ${serverRfqId}`);
 
+    // Non-blocking fire-and-forget: Trigger server-side notify-rfq Edge Function
+    triggerRfqNotificationBackground(serverRfqId);
+
     return { 
       success: true, 
       serverRfqId,
@@ -499,7 +510,7 @@ export async function signInAdministrator(email: string, password: string): Prom
     // 2. Server-side verification in administrator_users table
     const { data: adminData, error: adminError } = await supabase
       .from('administrator_users')
-      .select('id, email, full_name, role, is_active')
+      .select('id, email, full_name, role, is_active, receive_rfq_notifications')
       .eq('id', userId)
       .eq('is_active', true)
       .single();
@@ -519,7 +530,8 @@ export async function signInAdministrator(email: string, password: string): Prom
         id: adminData.id,
         email: adminData.email,
         fullName: adminData.full_name,
-        role: adminData.role
+        role: adminData.role,
+        receiveRfqNotifications: adminData.receive_rfq_notifications !== false
       }
     };
   } catch (err: any) {
@@ -557,7 +569,7 @@ export async function checkActiveAdminSession(): Promise<AdminAuthResult> {
 
     const { data: adminData, error } = await supabase
       .from('administrator_users')
-      .select('id, email, full_name, role, is_active')
+      .select('id, email, full_name, role, is_active, receive_rfq_notifications')
       .eq('id', userId)
       .eq('is_active', true)
       .single();
@@ -572,7 +584,8 @@ export async function checkActiveAdminSession(): Promise<AdminAuthResult> {
         id: adminData.id,
         email: adminData.email,
         fullName: adminData.full_name,
-        role: adminData.role
+        role: adminData.role,
+        receiveRfqNotifications: adminData.receive_rfq_notifications !== false
       }
     };
   } catch (e) {
@@ -591,42 +604,53 @@ export interface UploadImageResult {
   error?: string;
 }
 
-const ALLOWED_IMAGE_TYPES = [
+// Strictly allowed formats per production requirements: JPG, PNG, WebP only
+const ALLOWED_IMAGE_MIME_TYPES = [
   'image/jpeg',
   'image/png',
-  'image/webp',
-  'image/svg+xml',
-  'image/gif',
-  'image/avif'
+  'image/webp'
 ];
+const ALLOWED_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp'];
 const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB limit
 
 /**
  * Uploads a product photograph to the dedicated 'product-images' Supabase Storage bucket.
- * Validates file MIME type, file size, and handles mobile camera/photos as well as desktop files.
- * In local sandbox mode without active Supabase credentials, safely converts to a data URL for testing.
+ * Strictly validates file format (JPG, PNG, WebP) and maximum file size (10 MB).
+ * Enforces active administrator permissions on the database storage policies.
  */
 export async function uploadProductImageToSupabase(
   file: File,
   sku?: string
 ): Promise<UploadImageResult> {
-  // 1. File size validation (Max 10MB)
+  // 1. File size validation (Strict 10MB limit)
   if (file.size > MAX_IMAGE_SIZE_BYTES) {
     const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
     return {
       success: false,
-      error: `File size (${sizeMb} MB) exceeds maximum allowed limit of 10 MB. Please choose a smaller photo.`
+      error: `File size (${sizeMb} MB) exceeds maximum allowed limit of 10 MB. Please select an image under 10 MB.`
     };
   }
 
-  // 2. MIME type validation
-  const fileType = file.type?.toLowerCase();
-  const isTypeAllowed = ALLOWED_IMAGE_TYPES.includes(fileType) || fileType.startsWith('image/');
-  if (!isTypeAllowed) {
+  // 2. Strict format validation: JPG, PNG, WebP only
+  const fileNameLower = (file.name || '').toLowerCase();
+  const fileTypeLower = (file.type || '').toLowerCase();
+  const hasValidExt = ALLOWED_IMAGE_EXTENSIONS.some(ext => fileNameLower.endsWith(ext));
+  const hasValidMime = ALLOWED_IMAGE_MIME_TYPES.includes(fileTypeLower);
+
+  // If MIME is provided and invalid, or if extension is invalid
+  if (!hasValidExt || (!hasValidMime && fileTypeLower && fileTypeLower !== 'application/octet-stream')) {
     return {
       success: false,
-      error: 'Unsupported image format. Allowed formats: JPG, PNG, WebP, SVG, GIF, or AVIF.'
+      error: 'Unsupported image format. Only JPG, PNG, and WebP photographs up to 10 MB are permitted.'
     };
+  }
+
+  // Determine explicit sanitized content-type for Supabase Storage
+  let contentType = 'image/jpeg';
+  if (fileNameLower.endsWith('.png') || fileTypeLower === 'image/png') {
+    contentType = 'image/png';
+  } else if (fileNameLower.endsWith('.webp') || fileTypeLower === 'image/webp') {
+    contentType = 'image/webp';
   }
 
   // 3. Generate sanitized, unique storage path
@@ -643,7 +667,7 @@ export async function uploadProductImageToSupabase(
         .upload(filePath, file, {
           cacheControl: '3600',
           upsert: true,
-          contentType: file.type || 'image/jpeg'
+          contentType: contentType
         });
 
       if (error) {
@@ -701,29 +725,413 @@ export async function uploadProductImageToSupabase(
 }
 
 /**
- * Deletes a photograph from the 'product-images' Supabase Storage bucket.
+ * Safely removes an uploaded photograph from the 'product-images' Supabase Storage bucket.
+ * Strict safeguards:
+ *   - Never deletes local /catalog/ files, data URLs, or external assets
+ *   - Only removes files stored within the 'product-images' bucket
  */
 export async function deleteProductImageFromSupabase(filePathOrUrl: string): Promise<{ success: boolean; error?: string }> {
+  if (!filePathOrUrl) {
+    return { success: true };
+  }
+
+  // Never delete local bundled assets, data URLs, or blob URLs
+  if (
+    filePathOrUrl.startsWith('/catalog/') || 
+    filePathOrUrl.startsWith('data:') || 
+    filePathOrUrl.startsWith('blob:')
+  ) {
+    return { success: true };
+  }
+
   if (!isSupabaseConfigured() || !supabase) {
     return { success: true };
   }
 
   try {
     let path = filePathOrUrl;
+    // Extract the relative path within the 'product-images' bucket
     if (path.includes('/product-images/')) {
       path = path.split('/product-images/')[1].split('?')[0];
     }
 
-    if (path && !path.startsWith('http') && !path.startsWith('data:') && !path.startsWith('/catalog/')) {
+    // Only proceed if it is an actual storage object within product-images (not external URLs)
+    if (path && !path.startsWith('http://') && !path.startsWith('https://')) {
       const decodedPath = decodeURIComponent(path);
       const { error } = await supabase.storage.from('product-images').remove([decodedPath]);
       if (error) {
-        console.warn('[ZEZ Storage] Delete warning:', error.message);
+        console.warn('[ZEZ Storage] Error deleting image from storage:', error.message);
+        return { success: false, error: error.message };
       }
+      console.info(`[ZEZ Storage] Cleaned up unused file from product-images: ${decodedPath}`);
     }
+    return { success: true };
+  } catch (err: any) {
+    console.warn('[ZEZ Storage] Exception deleting image:', err.message);
+    return { success: false, error: err.message };
+  }
+}
+
+// -----------------------------------------------------------------------------
+// PHASE 4: RFQ EMAIL NOTIFICATIONS & ADMINISTRATOR MANAGEMENT (SERVER-SIDE)
+// -----------------------------------------------------------------------------
+
+/**
+ * Triggers the server-side notify-rfq Supabase Edge Function asynchronously.
+ * Fire-and-forget: RFQ saving is never blocked even if the notification server is cold-starting.
+ */
+export function triggerRfqNotificationBackground(rfqId: string): void {
+  if (!isSupabaseConfigured() || !supabase || !rfqId) return;
+
+  // Invoke server-side Supabase Edge Function
+  supabase.functions
+    .invoke('notify-rfq', {
+      body: { rfq_id: rfqId }
+    })
+    .then(({ data, error }) => {
+      if (error) {
+        console.warn('[ZEZ Notifications] Background notify-rfq note:', error.message);
+      } else {
+        console.info('[ZEZ Notifications] notify-rfq Edge Function response:', data);
+      }
+    })
+    .catch(err => {
+      console.warn('[ZEZ Notifications] Network exception invoking notify-rfq:', err);
+    });
+}
+
+/**
+ * Fetches all administrator accounts for the Super Admin management directory.
+ */
+export async function fetchAdministratorUsersFromSupabase(): Promise<AdministratorUser[]> {
+  if (!isSupabaseConfigured() || !supabase) {
+    return [];
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('administrator_users')
+      .select('id, email, full_name, role, is_active, receive_rfq_notifications, created_at, updated_at')
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      console.warn('[ZEZ Admins] Error fetching administrator directory:', error.message);
+      return [];
+    }
+
+    if (!data) return [];
+
+    return data.map(row => ({
+      id: row.id,
+      email: row.email,
+      fullName: row.full_name,
+      role: row.role as AdminRole,
+      isActive: Boolean(row.is_active),
+      receiveRfqNotifications: row.receive_rfq_notifications !== false,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+  } catch (err: any) {
+    console.warn('[ZEZ Admins] Unexpected error fetching administrators:', err);
+    return [];
+  }
+}
+
+/**
+ * Invites a new administrator via the server-side manage-admin Edge Function.
+ * Uses the Supabase Auth Admin API server-side without exposing service role keys.
+ */
+export async function inviteAdministratorUser(payload: {
+  email: string;
+  fullName: string;
+  role: AdminRole;
+  receiveRfqNotifications?: boolean;
+}): Promise<{ success: boolean; administrator?: AdministratorUser; error?: string }> {
+  if (!isSupabaseConfigured() || !supabase) {
+    return { success: false, error: 'Supabase is not configured.' };
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke('manage-admin', {
+      body: {
+        action: 'invite',
+        email: payload.email,
+        fullName: payload.fullName,
+        role: payload.role,
+        receiveRfqNotifications: payload.receiveRfqNotifications !== false
+      }
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    if (!data?.success) {
+      return { success: false, error: data?.error || 'Failed to invite administrator.' };
+    }
+
+    return {
+      success: true,
+      administrator: data.administrator
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Network error inviting administrator.' };
+  }
+}
+
+/**
+ * Updates an administrator's role, active status, or notification preference via Edge Function.
+ */
+export async function updateAdministratorUser(
+  targetAdminId: string,
+  updates: {
+    role?: AdminRole;
+    isActive?: boolean;
+    receiveRfqNotifications?: boolean;
+    fullName?: string;
+  }
+): Promise<{ success: boolean; administrator?: AdministratorUser; error?: string }> {
+  if (!isSupabaseConfigured() || !supabase) {
+    return { success: false, error: 'Supabase is not configured.' };
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke('manage-admin', {
+      body: {
+        action: 'update',
+        targetAdminId,
+        ...updates
+      }
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    if (!data?.success) {
+      return { success: false, error: data?.error || 'Failed to update administrator.' };
+    }
+
+    return {
+      success: true,
+      administrator: data.administrator
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Network error updating administrator.' };
+  }
+}
+
+/**
+ * Deletes an administrator account via the manage-admin Edge Function.
+ */
+export async function deleteAdministratorUser(targetAdminId: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured() || !supabase) {
+    return { success: false, error: 'Supabase is not configured.' };
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke('manage-admin', {
+      body: {
+        action: 'delete',
+        targetAdminId
+      }
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    if (!data?.success) {
+      return { success: false, error: data?.error || 'Failed to delete administrator.' };
+    }
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message || 'Network error deleting administrator.' };
+  }
+}
+
+/**
+ * Updates the logged-in administrator's own RFQ email notification preference.
+ */
+export async function updateOwnNotificationPreference(
+  receiveNotifications: boolean
+): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured() || !supabase) {
+    return { success: true };
+  }
+
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData?.session?.user?.id;
+    if (!userId) {
+      return { success: false, error: 'Not authenticated.' };
+    }
+
+    const { error } = await supabase
+      .from('administrator_users')
+      .update({
+        receive_rfq_notifications: receiveNotifications,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err.message };
   }
 }
+
+/**
+ * Fetches delivery logs from public.rfq_notification_logs for audit and history tracking.
+ */
+export async function fetchRfqNotificationLogsFromSupabase(limit = 50): Promise<RfqNotificationLog[]> {
+  if (!isSupabaseConfigured() || !supabase) {
+    return [];
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('rfq_notification_logs')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit);
+
+    if (error) {
+      console.warn('[ZEZ Notification Logs] Query note:', error.message);
+      return [];
+    }
+
+    if (!data) return [];
+
+    return data.map(row => ({
+      id: row.id,
+      rfqId: row.rfq_id,
+      recipientEmail: row.recipient_email,
+      recipientName: row.recipient_name,
+      recipientRole: row.recipient_role,
+      adminId: row.admin_id,
+      status: row.status,
+      resendId: row.resend_id,
+      attemptCount: row.attempt_count || 0,
+      maxAttempts: row.max_attempts || 3,
+      lastAttemptAt: row.last_attempt_at,
+      sentAt: row.sent_at,
+      errorMessage: row.error_message,
+      customerSummary: row.customer_summary,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at
+    }));
+  } catch (err: any) {
+    console.warn('[ZEZ Notification Logs] Exception fetching logs:', err);
+    return [];
+  }
+}
+
+/**
+ * Retries a failed notification log entry.
+ */
+export async function retryFailedRfqNotification(logId: string): Promise<{ success: boolean; error?: string }> {
+  if (!isSupabaseConfigured() || !supabase) {
+    return { success: false, error: 'Supabase is not configured.' };
+  }
+
+  try {
+    const { data: rpcData, error: rpcError } = await supabase.rpc('retry_failed_rfq_notification', {
+      p_log_id: logId
+    });
+
+    if (rpcError) {
+      return { success: false, error: rpcError.message };
+    }
+
+    if (!rpcData?.success) {
+      return { success: false, error: rpcData?.error || 'Failed to re-queue notification.' };
+    }
+
+    // Trigger dispatcher in background
+    supabase.functions.invoke('notify-rfq', {
+      body: { process_pending: true }
+    }).catch(() => {});
+
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Dispatches all pending RFQ notifications in the queue.
+ */
+export async function dispatchPendingRfqNotifications(): Promise<{
+  success: boolean;
+  dispatched?: number;
+  failed?: number;
+  error?: string;
+}> {
+  if (!isSupabaseConfigured() || !supabase) {
+    return { success: false, error: 'Supabase is not configured.' };
+  }
+
+  try {
+    const { data, error } = await supabase.functions.invoke('notify-rfq', {
+      body: { process_pending: true }
+    });
+
+    if (error) {
+      return { success: false, error: error.message };
+    }
+
+    return {
+      success: true,
+      dispatched: data?.dispatched || 0,
+      failed: data?.failed || 0
+    };
+  } catch (err: any) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
+ * Fetches notification statistics and Resend Free tier quota usage.
+ */
+export async function fetchNotificationQuotaStatsFromSupabase(): Promise<NotificationQuotaStats> {
+  const defaultStats: NotificationQuotaStats = {
+    todaySentCount: 0,
+    monthSentCount: 0,
+    pendingCount: 0,
+    failedCount: 0,
+    dailyLimit: 100,
+    monthlyLimit: 3000,
+    lastRefreshedAt: new Date().toISOString()
+  };
+
+  if (!isSupabaseConfigured() || !supabase) {
+    return defaultStats;
+  }
+
+  try {
+    const { data: rpcData, error } = await supabase.rpc('get_notification_stats');
+    if (!error && rpcData) {
+      return {
+        todaySentCount: Number(rpcData.today_sent_count) || 0,
+        monthSentCount: Number(rpcData.month_sent_count) || 0,
+        pendingCount: Number(rpcData.pending_count) || 0,
+        failedCount: Number(rpcData.failed_count) || 0,
+        dailyLimit: Number(rpcData.daily_limit) || 100,
+        monthlyLimit: Number(rpcData.monthly_limit) || 3000,
+        lastRefreshedAt: rpcData.refreshed_at || new Date().toISOString()
+      };
+    }
+  } catch (err) {
+    console.warn('[ZEZ Notification Stats] RPC error, computing fallback:', err);
+  }
+
+  return defaultStats;
+}
+
 

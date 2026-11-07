@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   ShieldCheck, 
   Package, 
@@ -35,10 +35,30 @@ import {
   Image as ImageIcon,
   Star,
   Loader2,
-  Maximize2
+  Maximize2,
+  Users,
+  UserPlus,
+  Bell,
+  BellOff,
+  Send,
+  Crown,
+  Shield,
+  Activity,
+  CheckCircle,
+  Inbox
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { Product, RfqStatus, QuotationRequest, StockStatus, ProductImageStatus } from '../types';
+import { 
+  Product, 
+  RfqStatus, 
+  QuotationRequest, 
+  StockStatus, 
+  ProductImageStatus,
+  AdministratorUser,
+  AdminRole,
+  RfqNotificationLog,
+  NotificationQuotaStats
+} from '../types';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { 
   getDisplayBrand, 
@@ -47,7 +67,18 @@ import {
   handleProductImageError,
   DEFAULT_PRODUCT_FALLBACK_IMAGE
 } from '../utils/productUtils';
-import { uploadProductImageToSupabase } from '../services/supabaseService';
+import { 
+  uploadProductImageToSupabase, 
+  deleteProductImageFromSupabase,
+  fetchAdministratorUsersFromSupabase,
+  inviteAdministratorUser,
+  updateAdministratorUser,
+  deleteAdministratorUser,
+  fetchRfqNotificationLogsFromSupabase,
+  retryFailedRfqNotification,
+  dispatchPendingRfqNotifications,
+  fetchNotificationQuotaStatsFromSupabase
+} from '../services/supabaseService';
 
 export const AdminDashboardView: React.FC = () => {
   const { 
@@ -66,9 +97,11 @@ export const AdminDashboardView: React.FC = () => {
     setActiveView,
     navigateToProduct,
     adminUser,
+    isSuperAdmin,
     isAdminAuthenticated,
     adminLogin,
     adminLogout,
+    updateOwnNotificationPreference,
     isDbConnected,
     refreshProducts,
     supabaseSeedPending,
@@ -88,7 +121,7 @@ export const AdminDashboardView: React.FC = () => {
   const [prodModalLoading, setProdModalLoading] = useState(false);
   const [tableActionError, setTableActionError] = useState<string | null>(null);
 
-  const [activeAdminTab, setActiveAdminTab] = useState<'overview' | 'rfqs' | 'products' | 'categories' | 'settings'>('overview');
+  const [activeAdminTab, setActiveAdminTab] = useState<'overview' | 'rfqs' | 'products' | 'categories' | 'admins' | 'notifications' | 'settings'>('overview');
 
   // RFQ filtering & search
   const [rfqSearch, setRfqSearch] = useState('');
@@ -149,6 +182,49 @@ export const AdminDashboardView: React.FC = () => {
   // Settings form state
   const [settingsForm, setSettingsForm] = useState(siteSettings);
   const [settingsSaved, setSettingsSaved] = useState(false);
+
+  // ---------------------------------------------------------------------------
+  // PHASE 4: ADMINISTRATOR MANAGEMENT STATE (Super Admin Only)
+  // ---------------------------------------------------------------------------
+  const [adminList, setAdminList] = useState<AdministratorUser[]>([]);
+  const [adminListLoading, setAdminListLoading] = useState(false);
+  const [adminListError, setAdminListError] = useState<string | null>(null);
+  const [adminActionLoading, setAdminActionLoading] = useState(false);
+  const [adminActionSuccess, setAdminActionSuccess] = useState<string | null>(null);
+  const [adminActionError, setAdminActionError] = useState<string | null>(null);
+  const [adminSearch, setAdminSearch] = useState('');
+
+  // Invite Administrator Modal State
+  const [inviteModalOpen, setInviteModalOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteFullName, setInviteFullName] = useState('');
+  const [inviteRole, setInviteRole] = useState<AdminRole>('sales_engineer');
+  const [inviteReceiveNotifs, setInviteReceiveNotifs] = useState(true);
+
+  // Delete Admin Confirmation State
+  const [adminToDelete, setAdminToDelete] = useState<AdministratorUser | null>(null);
+
+  // ---------------------------------------------------------------------------
+  // PHASE 4: RFQ EMAIL NOTIFICATIONS & RESEND QUOTA STATE
+  // ---------------------------------------------------------------------------
+  const [notifLogs, setNotifLogs] = useState<RfqNotificationLog[]>([]);
+  const [notifLogsLoading, setNotifLogsLoading] = useState(false);
+  const [notifLogsError, setNotifLogsError] = useState<string | null>(null);
+  const [notifSearch, setNotifSearch] = useState('');
+  const [notifStatusFilter, setNotifStatusFilter] = useState<string>('all');
+  const [notifQuotaStats, setNotifQuotaStats] = useState<NotificationQuotaStats>({
+    todaySentCount: 0,
+    monthSentCount: 0,
+    pendingCount: 0,
+    failedCount: 0,
+    dailyLimit: 100,
+    monthlyLimit: 3000,
+    lastRefreshedAt: new Date().toISOString()
+  });
+  const [retryingLogId, setRetryingLogId] = useState<string | null>(null);
+  const [dispatchingQueue, setDispatchingQueue] = useState(false);
+  const [prefUpdating, setPrefUpdating] = useState(false);
+  const [prefMessage, setPrefMessage] = useState<string | null>(null);
 
   // Filtered RFQs
   const filteredRfqs = rfqRequests.filter(rfq => {
@@ -258,14 +334,38 @@ export const AdminDashboardView: React.FC = () => {
     if (!files || files.length === 0) return;
     setUploadingImage(true);
     setUploadError(null);
-    setUploadProgressText(`Uploading ${files.length > 1 ? `${files.length} photos` : 'photo'} to Supabase Storage ('product-images')...`);
+
+    const fileArray = Array.from(files);
+
+    // 1. FRONTEND PRE-VALIDATION: Check all files before sending to storage
+    for (const file of fileArray) {
+      if (file.size > 10 * 1024 * 1024) {
+        const sizeMb = (file.size / (1024 * 1024)).toFixed(1);
+        setUploadError(`"${file.name}" exceeds the maximum allowed file size of 10 MB (${sizeMb} MB). Upload cancelled.`);
+        setUploadingImage(false);
+        return;
+      }
+      const lowerName = file.name.toLowerCase();
+      const validExtensions = ['.jpg', '.jpeg', '.png', '.webp'];
+      const hasValidExt = validExtensions.some(ext => lowerName.endsWith(ext));
+      const validMimes = ['image/jpeg', 'image/png', 'image/webp'];
+      const hasValidMime = validMimes.includes(file.type?.toLowerCase());
+
+      if (!hasValidExt || (!hasValidMime && file.type && file.type !== 'application/octet-stream')) {
+        setUploadError(`"${file.name}" is not an accepted format. Only JPG, PNG, and WebP photographs (up to 10 MB) are permitted.`);
+        setUploadingImage(false);
+        return;
+      }
+    }
+
+    setUploadProgressText(`Uploading ${fileArray.length > 1 ? `${fileArray.length} photos` : 'photo'} to Supabase Storage ('product-images')...`);
 
     const newUrls: string[] = [];
     let uploadFailure: string | null = null;
 
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      setUploadProgressText(`Uploading photo ${i + 1} of ${files.length} (${file.name})...`);
+    for (let i = 0; i < fileArray.length; i++) {
+      const file = fileArray[i];
+      setUploadProgressText(`Uploading photo ${i + 1} of ${fileArray.length} (${file.name})...`);
       const res = await uploadProductImageToSupabase(file, prodForm.sku);
       if (res.success && res.publicUrl) {
         newUrls.push(res.publicUrl);
@@ -278,8 +378,13 @@ export const AdminDashboardView: React.FC = () => {
     setUploadingImage(false);
     setUploadProgressText(null);
 
+    // If any upload failed, abort completely, display error, and roll back any partial uploads
     if (uploadFailure) {
       setUploadError(uploadFailure);
+      // Clean up newly uploaded files from this failed batch so no orphaned files remain
+      for (const orphanedUrl of newUrls) {
+        await deleteProductImageFromSupabase(orphanedUrl);
+      }
       return;
     }
 
@@ -292,7 +397,7 @@ export const AdminDashboardView: React.FC = () => {
       const existingGallery = (prodForm.galleryImages || []).filter(img => img !== newMain && !img.includes('-pending.svg'));
       const combinedGallery = Array.from(new Set([newMain, ...existingGallery, ...otherNew]));
 
-      // Do not falsely label uploaded photos as verified manufacturer photos
+      // Uploaded photos default to illustrative or supplier-provided (never mislabeled as manufacturer-matched)
       const newStatus: ProductImageStatus = prodForm.imageStatus === 'pending' || !prodForm.imageStatus
         ? 'illustrative'
         : prodForm.imageStatus;
@@ -322,7 +427,8 @@ export const AdminDashboardView: React.FC = () => {
     setGalleryImagesText(otherGalleries.join('\n'));
   };
 
-  const handleRemoveImage = (targetUrl: string) => {
+  const handleRemoveImage = async (targetUrl: string) => {
+    // 1. Remove from local form state
     const all = Array.from(new Set([
       prodForm.mainImage,
       ...(prodForm.galleryImages || [])
@@ -347,6 +453,23 @@ export const AdminDashboardView: React.FC = () => {
         galleryImages: [newMain, ...newGallery]
       }));
       setGalleryImagesText(newGallery.join('\n'));
+    }
+
+    // 2. Safe cleanup of unused storage file:
+    // Check if it's a Supabase storage URL, and verify that NO OTHER product in the catalog is using it
+    if (targetUrl && targetUrl.includes('/product-images/')) {
+      const isSharedWithOtherProducts = products.some(p => {
+        // Ignore the product currently being edited
+        if (editingProduct && p.id === editingProduct.id) return false;
+        return p.mainImage === targetUrl || (p.galleryImages || []).includes(targetUrl);
+      });
+
+      if (!isSharedWithOtherProducts) {
+        console.info(`[ZEZ Storage] Safely cleaning up unshared storage file: ${targetUrl}`);
+        await deleteProductImageFromSupabase(targetUrl);
+      } else {
+        console.info(`[ZEZ Storage] Preserving shared image ${targetUrl} used by other catalog products.`);
+      }
     }
   };
 
@@ -529,6 +652,214 @@ export const AdminDashboardView: React.FC = () => {
     setSettingsSaved(true);
     setTimeout(() => setSettingsSaved(false), 3000);
   };
+
+  // ---------------------------------------------------------------------------
+  // PHASE 4: ADMINISTRATOR MANAGEMENT HANDLERS (Super Admin)
+  // ---------------------------------------------------------------------------
+  const loadAdmins = async () => {
+    setAdminListLoading(true);
+    setAdminListError(null);
+    try {
+      const data = await fetchAdministratorUsersFromSupabase();
+      setAdminList(data);
+    } catch (e: any) {
+      setAdminListError(e.message || 'Failed to fetch administrators.');
+    } finally {
+      setAdminListLoading(false);
+    }
+  };
+
+  const handleInviteAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAdminActionLoading(true);
+    setAdminActionError(null);
+    setAdminActionSuccess(null);
+
+    const res = await inviteAdministratorUser({
+      email: inviteEmail.trim(),
+      fullName: inviteFullName.trim(),
+      role: inviteRole,
+      receiveRfqNotifications: inviteReceiveNotifs
+    });
+
+    setAdminActionLoading(false);
+    if (!res.success) {
+      setAdminActionError(res.error || 'Failed to invite administrator.');
+      return;
+    }
+
+    setAdminActionSuccess(`Invitation dispatched to ${inviteEmail}. Account registered as ${inviteRole}.`);
+    setInviteModalOpen(false);
+    setInviteEmail('');
+    setInviteFullName('');
+    setInviteRole('sales_engineer');
+    setInviteReceiveNotifs(true);
+    await loadAdmins();
+  };
+
+  const handleToggleAdminActive = async (admin: AdministratorUser) => {
+    // Protection: Prevent deactivating the last active Super Admin
+    if (admin.role === 'super_admin' && admin.isActive) {
+      const activeSuperAdmins = adminList.filter(a => a.role === 'super_admin' && a.isActive);
+      if (activeSuperAdmins.length <= 1) {
+        setAdminActionError('Action Rejected: Cannot deactivate the last active Super Admin account. Maintain at least one active Super Admin.');
+        return;
+      }
+    }
+
+    setAdminActionLoading(true);
+    setAdminActionError(null);
+    setAdminActionSuccess(null);
+
+    const res = await updateAdministratorUser(admin.id, {
+      isActive: !admin.isActive
+    });
+
+    setAdminActionLoading(false);
+    if (!res.success) {
+      setAdminActionError(res.error || 'Failed to update account status.');
+      return;
+    }
+
+    setAdminActionSuccess(`Administrator "${admin.fullName}" status updated to ${!admin.isActive ? 'Active' : 'Inactive'}.`);
+    await loadAdmins();
+  };
+
+  const handleToggleAdminNotifications = async (admin: AdministratorUser) => {
+    setAdminActionLoading(true);
+    setAdminActionError(null);
+    setAdminActionSuccess(null);
+
+    const res = await updateAdministratorUser(admin.id, {
+      receiveRfqNotifications: !admin.receiveRfqNotifications
+    });
+
+    setAdminActionLoading(false);
+    if (!res.success) {
+      setAdminActionError(res.error || 'Failed to update notification setting.');
+      return;
+    }
+
+    setAdminActionSuccess(`RFQ email alerts for "${admin.fullName}" ${!admin.receiveRfqNotifications ? 'enabled' : 'disabled'}.`);
+    await loadAdmins();
+  };
+
+  const handleChangeAdminRole = async (admin: AdministratorUser, newRole: AdminRole) => {
+    if (admin.role === newRole) return;
+
+    // Protection: Prevent demoting the last active Super Admin
+    if (admin.role === 'super_admin' && newRole !== 'super_admin') {
+      const activeSuperAdmins = adminList.filter(a => a.role === 'super_admin' && a.isActive);
+      if (activeSuperAdmins.length <= 1) {
+        setAdminActionError('Action Rejected: Cannot demote the last active Super Admin account. Designate another Super Admin first.');
+        return;
+      }
+    }
+
+    setAdminActionLoading(true);
+    setAdminActionError(null);
+    setAdminActionSuccess(null);
+
+    const res = await updateAdministratorUser(admin.id, {
+      role: newRole
+    });
+
+    setAdminActionLoading(false);
+    if (!res.success) {
+      setAdminActionError(res.error || 'Failed to change administrative role.');
+      return;
+    }
+
+    setAdminActionSuccess(`Role for "${admin.fullName}" updated to ${newRole}.`);
+    await loadAdmins();
+  };
+
+  const handleDeleteAdmin = async () => {
+    if (!adminToDelete) return;
+
+    setAdminActionLoading(true);
+    setAdminActionError(null);
+    setAdminActionSuccess(null);
+
+    const res = await deleteAdministratorUser(adminToDelete.id);
+    setAdminActionLoading(false);
+
+    if (!res.success) {
+      setAdminActionError(res.error || 'Failed to delete administrator account.');
+      return;
+    }
+
+    setAdminActionSuccess(`Administrator account "${adminToDelete.email}" deleted successfully.`);
+    setAdminToDelete(null);
+    await loadAdmins();
+  };
+
+  // ---------------------------------------------------------------------------
+  // PHASE 4: RFQ EMAIL NOTIFICATION LOGS & RESEND QUOTA HANDLERS
+  // ---------------------------------------------------------------------------
+  const loadNotificationData = async () => {
+    setNotifLogsLoading(true);
+    setNotifLogsError(null);
+    try {
+      const [logs, stats] = await Promise.all([
+        fetchRfqNotificationLogsFromSupabase(100),
+        fetchNotificationQuotaStatsFromSupabase()
+      ]);
+      setNotifLogs(logs);
+      setNotifQuotaStats(stats);
+    } catch (e: any) {
+      setNotifLogsError(e.message || 'Failed to fetch notification logs.');
+    } finally {
+      setNotifLogsLoading(false);
+    }
+  };
+
+  const handleRetryLog = async (logId: string) => {
+    setRetryingLogId(logId);
+    const res = await retryFailedRfqNotification(logId);
+    setRetryingLogId(null);
+    if (!res.success) {
+      alert(`Retry notice: ${res.error}`);
+    } else {
+      await loadNotificationData();
+    }
+  };
+
+  const handleDispatchQueue = async () => {
+    setDispatchingQueue(true);
+    const res = await dispatchPendingRfqNotifications();
+    setDispatchingQueue(false);
+    if (!res.success) {
+      alert(`Dispatch notice: ${res.error}`);
+    } else {
+      await loadNotificationData();
+    }
+  };
+
+  const handleToggleOwnNotification = async () => {
+    setPrefUpdating(true);
+    setPrefMessage(null);
+    const current = adminUser?.receiveRfqNotifications !== false;
+    const res = await updateOwnNotificationPreference(!current);
+    setPrefUpdating(false);
+    if (res.success) {
+      setPrefMessage(`RFQ email alerts ${!current ? 'enabled' : 'disabled'} for your account.`);
+      setTimeout(() => setPrefMessage(null), 4000);
+    } else {
+      setPrefMessage(`Failed to update preference: ${res.error}`);
+    }
+  };
+
+  // Tab switching data loaders
+  useEffect(() => {
+    if (isAdminAuthenticated) {
+      if (activeAdminTab === 'admins' && isSuperAdmin) {
+        loadAdmins();
+      } else if (activeAdminTab === 'notifications') {
+        loadNotificationData();
+      }
+    }
+  }, [activeAdminTab, isAdminAuthenticated, isSuperAdmin]);
 
   // If not authenticated, render the secure administrator login gate
   if (!isAdminAuthenticated) {
@@ -716,6 +1047,33 @@ export const AdminDashboardView: React.FC = () => {
               }`}
             >
               Categories & Brands
+            </button>
+            {isSuperAdmin && (
+              <button
+                onClick={() => setActiveAdminTab('admins')}
+                className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 ${
+                  activeAdminTab === 'admins' ? 'bg-[#B5121B] text-white' : 'text-amber-300 hover:text-white'
+                }`}
+                title="Authorized Administrator Management (Super Admin Exclusive)"
+              >
+                <Crown className="w-3.5 h-3.5 text-amber-400" />
+                <span>Administrators</span>
+              </button>
+            )}
+            <button
+              onClick={() => setActiveAdminTab('notifications')}
+              className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 ${
+                activeAdminTab === 'notifications' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
+              }`}
+              title="RFQ Email Alerts, Delivery Logs & Resend Quotas"
+            >
+              <Bell className="w-3.5 h-3.5 text-red-400" />
+              <span>RFQ Alerts & Logs</span>
+              {notifQuotaStats.failedCount > 0 && (
+                <span className="bg-red-500 text-white px-1.5 py-0.2 rounded-full font-bold text-[10px]">
+                  {notifQuotaStats.failedCount}
+                </span>
+              )}
             </button>
             <button
               onClick={() => setActiveAdminTab('settings')}
@@ -1692,17 +2050,17 @@ export const AdminDashboardView: React.FC = () => {
                           <span>Product Photography & Gallery</span>
                         </label>
                         <p className="text-[11px] text-gray-500">
-                          Upload genuine equipment photos to Supabase Storage (<code className="text-gray-700 bg-gray-200/70 px-1 rounded">product-images</code> bucket).
+                          Upload genuine equipment photos to Supabase Storage (<code className="text-gray-700 bg-gray-200/70 px-1 rounded">product-images</code> bucket). JPG, PNG, or WebP up to 10 MB.
                         </p>
                       </div>
 
                       {/* Action buttons */}
                       <div className="flex items-center gap-2">
-                        {/* Hidden file inputs */}
+                        {/* Hidden file inputs strictly restricted to JPG, PNG, WebP */}
                         <input
                           ref={desktopFileInputRef}
                           type="file"
-                          accept="image/jpeg,image/png,image/webp,image/svg+xml,image/gif,image/avif"
+                          accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
                           multiple
                           className="hidden"
                           onChange={(e) => {
@@ -1713,7 +2071,7 @@ export const AdminDashboardView: React.FC = () => {
                         <input
                           ref={cameraInputRef}
                           type="file"
-                          accept="image/*"
+                          accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
                           capture="environment"
                           className="hidden"
                           onChange={(e) => {

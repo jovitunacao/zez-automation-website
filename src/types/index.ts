@@ -139,3 +139,63 @@ export interface FilterState {
   priceRange: [number, number];
   sortBy: 'featured' | 'name-asc' | 'name-desc' | 'price-asc' | 'price-desc' | 'newest';
 }
+
+// -----------------------------------------------------------------------------
+// PHASE 4: ADMINISTRATOR RBAC & RFQ NOTIFICATION TYPES
+// -----------------------------------------------------------------------------
+export type AdminRole = 'super_admin' | 'admin' | 'sales_engineer';
+
+export interface AdministratorUser {
+  id: string;
+  email: string;
+  fullName: string;
+  role: AdminRole;
+  isActive: boolean;
+  receiveRfqNotifications: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export type NotificationStatus = 
+  | 'pending' 
+  | 'queued' 
+  | 'sent' 
+  | 'failed' 
+  | 'retrying' 
+  | 'quota_exceeded' 
+  | 'cancelled';
+
+export interface RfqNotificationLog {
+  id: string;
+  rfqId: string;
+  recipientEmail: string;
+  recipientName: string;
+  recipientRole?: string;
+  adminId?: string;
+  status: NotificationStatus;
+  resendId?: string;
+  attemptCount: number;
+  maxAttempts: number;
+  lastAttemptAt?: string;
+  sentAt?: string;
+  errorMessage?: string;
+  customerSummary?: {
+    customerName?: string;
+    companyName?: string;
+    itemsCount?: number;
+    totalEstimatedPhp?: number;
+  };
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationQuotaStats {
+  todaySentCount: number;
+  monthSentCount: number;
+  pendingCount: number;
+  failedCount: number;
+  dailyLimit: number; // 100 on Resend Free
+  monthlyLimit: number; // 3000 on Resend Free
+  lastRefreshedAt: string;
+}
+

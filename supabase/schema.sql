@@ -608,9 +608,18 @@ GRANT EXECUTE ON FUNCTION public.submit_quotation_request(JSONB) TO anon, authen
 -- 12. SUPABASE STORAGE BUCKETS (Product Images & Datasheets)
 -- ------------------------------------------------------------------------------
 -- Insert storage buckets if not already existing
-INSERT INTO storage.buckets (id, name, public) 
-VALUES ('product-images', 'product-images', true)
-ON CONFLICT (id) DO UPDATE SET public = true;
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types) 
+VALUES (
+    'product-images', 
+    'product-images', 
+    true, 
+    10485760, -- 10 MB limit
+    ARRAY['image/jpeg', 'image/png', 'image/webp']::text[]
+)
+ON CONFLICT (id) DO UPDATE SET 
+    public = true,
+    file_size_limit = 10485760,
+    allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp']::text[];
 
 INSERT INTO storage.buckets (id, name, public) 
 VALUES ('product-datasheets', 'product-datasheets', true)
