@@ -11,11 +11,15 @@
 //   1. Explicit server-side authorization: requires x-webhook-secret header OR
 //      valid Bearer JWT of an active administrator or service-role. Unauthorized
 //      requests are immediately rejected with HTTP 401.
-//   2. Atomic row claiming via PostgreSQL 'claim_pending_rfq_notifications' RPC:
-//      uses FOR UPDATE SKIP LOCKED to prevent duplicate emails under concurrent invocations.
-//   3. Resend Idempotency-Key headers ('rfq_{id}_{recipient}_{attempt}') for zero-duplicate guarantee.
-//   4. Enforces both daily (100) and monthly (3,000) Resend Free tier quota ceilings.
-//   5. Fetches corporate branding and contact details dynamically from public.site_settings.
+//   2. Atomic row claiming & crash recovery: uses PostgreSQL 'claim_pending_rfq_notifications'
+//      with FOR UPDATE SKIP LOCKED. Automatically recovers abandoned jobs stuck in
+//      'processing' (> 5 mins) after a crash or network timeout.
+//   3. Transaction-safe quota reservation: calls PostgreSQL 'reserve_email_quota'
+//      under row lock before sending. Concurrent requests can never exceed daily (100)
+//      or monthly (3,000) limits. Releases reservation on delivery failure.
+//   4. Resend Idempotency-Key headers ('rfq_{id}_{recipient}_{attempt}') for zero-duplicate guarantee.
+//   5. Corporate details: reads verified site settings from public.site_settings.
+//      Any unavailable contact detail (address, phone, Viber) is cleanly omitted.
 //
 // ENVIRONMENT VARIABLES REQUIRED:
 //   - RESEND_API_KEY: Resend API key (re_xxxx)
@@ -55,12 +59,12 @@ interface RequestPayload {
 
 interface SiteSettings {
   company_name: string;
-  tagline: string;
-  phone_primary: string;
-  phone_secondary: string;
-  mobile_viber: string;
-  email_sales: string;
-  office_address: string;
+  tagline?: string;
+  phone_primary?: string;
+  phone_secondary?: string;
+  mobile_viber?: string;
+  email_sales?: string;
+  office_address?: string;
 }
 
 serve(async (req: Request) => {
@@ -73,7 +77,7 @@ serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL");
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
-    const fromEmail = Deno.env.get("RESEND_FROM_EMAIL") || "ZEZ RFQ Portal <onboarding@resend.dev>";
+    const fromEmail = Deno.env.get("RESEND_FROM_EMAIL") || "ZEZ Procurement <notifications@zezautomation.ph>";
     const webhookSecret = Deno.env.get("NOTIFY_WEBHOOK_SECRET");
     const siteUrl = Deno.env.get("PUBLIC_SITE_URL") || "https://zezautomation.ph";
 
@@ -84,7 +88,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // Initialize administrative Supabase client
+    // Initialize administrative Supabase client using service role key
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
       auth: { persistSession: false },
     });
@@ -172,7 +176,7 @@ serve(async (req: Request) => {
       );
     }
 
-    // 5. Check email quota in Philippine Standard Time (UTC+8)
+    // Date in Philippine Standard Time (UTC+8)
     const phDateStr = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Manila",
       year: "numeric",
@@ -180,38 +184,8 @@ serve(async (req: Request) => {
       day: "2-digit",
     }).format(new Date());
 
-    const { data: quotaStatus, error: quotaCheckError } = await supabaseAdmin.rpc("check_email_quota", {
-      p_date: phDateStr,
-    });
-
-    if (quotaCheckError) {
-      console.warn("[ZEZ Notify-RFQ] Warning checking quota RPC:", quotaCheckError.message);
-    } else if (quotaStatus && !quotaStatus.can_send) {
-      console.warn(`[ZEZ Notify-RFQ] Email quota ceiling reached: ${quotaStatus.reason}`);
-      if (targetRfqId) {
-        await supabaseAdmin
-          .from("rfq_notification_logs")
-          .update({
-            status: "quota_exceeded",
-            error_message: quotaStatus.reason,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("rfq_id", targetRfqId)
-          .in("status", ["pending", "retrying"]);
-      }
-
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: quotaStatus.reason,
-          quotaStatus,
-        }),
-        { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    // 6. ATOMIC ROW CLAIMING VIA RPC (FOR UPDATE SKIP LOCKED)
-    // Ensures concurrent calls never process or send the same notification twice!
+    // 5. ATOMIC ROW CLAIMING & CRASH RECOVERY RPC (FOR UPDATE SKIP LOCKED)
+    // Atomically claims pending rows, retries, and recovers jobs stuck in 'processing' > 5 mins
     const { data: claimedRows, error: claimError } = await supabaseAdmin.rpc("claim_pending_rfq_notifications", {
       p_rfq_id: targetRfqId || null,
       p_limit: 15,
@@ -228,22 +202,17 @@ serve(async (req: Request) => {
     if (!claimedRows || claimedRows.length === 0) {
       return new Response(
         JSON.stringify({
-          message: "No pending RFQ notifications available or already claimed by another worker.",
+          message: "No pending or recovered RFQ notifications available to dispatch.",
           dispatched: 0,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 7. Load verified business settings from public.site_settings
+    // 6. Load verified business settings from public.site_settings
+    // Strictly omit fictional details; if unavailable in DB, only include corporate name
     let siteSettings: SiteSettings = {
       company_name: "ZEZ Automation Corporation",
-      tagline: "Powering Business Through Technology",
-      phone_primary: "(02) 8800-9390",
-      phone_secondary: "+63 917 800 9390",
-      mobile_viber: "+63 917 800 9390",
-      email_sales: "sales@zezautomation.ph",
-      office_address: "Unit 1402, Corporate Center, Emerald Avenue, Ortigas Center, Pasig City, Metro Manila 1605 Philippines",
     };
 
     try {
@@ -255,32 +224,38 @@ serve(async (req: Request) => {
 
       if (settingsRow) {
         siteSettings = {
-          company_name: settingsRow.company_name || siteSettings.company_name,
-          tagline: settingsRow.tagline || siteSettings.tagline,
-          phone_primary: settingsRow.phone_primary || siteSettings.phone_primary,
-          phone_secondary: settingsRow.phone_secondary || siteSettings.phone_secondary,
-          mobile_viber: settingsRow.mobile_viber || siteSettings.mobile_viber,
-          email_sales: settingsRow.email_sales || siteSettings.email_sales,
-          office_address: settingsRow.office_address || siteSettings.office_address,
+          company_name: settingsRow.company_name?.trim() || "ZEZ Automation Corporation",
+          tagline: settingsRow.tagline?.trim() || undefined,
+          phone_primary: settingsRow.phone_primary?.trim() || undefined,
+          phone_secondary: settingsRow.phone_secondary?.trim() || undefined,
+          mobile_viber: settingsRow.mobile_viber?.trim() || undefined,
+          email_sales: settingsRow.email_sales?.trim() || undefined,
+          office_address: settingsRow.office_address?.trim() || undefined,
         };
       }
     } catch (settingsErr) {
-      console.warn("[ZEZ Notify-RFQ] Using verified default corporate details:", settingsErr);
+      console.warn("[ZEZ Notify-RFQ] Using verified base corporate name:", settingsErr);
     }
 
     let dispatchedCount = 0;
     let failedCount = 0;
 
-    // 8. Process each claimed notification individually
+    // 7. Process each claimed notification individually
     for (const log of claimedRows) {
-      // Re-verify quota mid-batch
-      const { data: liveQuota } = await supabaseAdmin.rpc("check_email_quota", { p_date: phDateStr });
-      if (liveQuota && !liveQuota.can_send) {
+      // TRANSACTION-SAFE RESERVATION: Atomically reserve 1 email slot under row lock before sending
+      const { data: reservation, error: resError } = await supabaseAdmin.rpc("reserve_email_quota", {
+        p_count: 1,
+        p_date: phDateStr,
+      });
+
+      if (resError || !reservation?.allowed) {
+        const reason = reservation?.reason || "Email quota ceiling reached.";
+        console.warn(`[ZEZ Notify-RFQ] Quota reservation rejected for ${log.recipient_email}: ${reason}`);
         await supabaseAdmin
           .from("rfq_notification_logs")
           .update({
             status: "quota_exceeded",
-            error_message: liveQuota.reason,
+            error_message: reason,
             updated_at: new Date().toISOString(),
           })
           .eq("id", log.id);
@@ -295,6 +270,8 @@ serve(async (req: Request) => {
         .maybeSingle();
 
       if (rfqError || !rfq) {
+        // Release the reservation since parent RFQ doesn't exist
+        await supabaseAdmin.rpc("release_email_quota", { p_count: 1, p_date: phDateStr });
         await supabaseAdmin
           .from("rfq_notification_logs")
           .update({
@@ -318,7 +295,7 @@ serve(async (req: Request) => {
         timeStyle: "short",
       }).format(submissionDate);
 
-      // Build HTML & plaintext email templates with verified corporate info
+      // Build HTML & plaintext email templates with verified corporate info (omits unverified info)
       const emailHtml = generateRfqEmailHtml({
         recipientName,
         rfqId: rfq.id,
@@ -393,10 +370,10 @@ serve(async (req: Request) => {
             .eq("id", log.id);
 
           dispatchedCount++;
-
-          // Concurrency-safe atomic quota increment
-          await supabaseAdmin.rpc("increment_email_quota_counter", { p_date: phDateStr });
         } else {
+          // Delivery failed: release the reserved quota slot
+          await supabaseAdmin.rpc("release_email_quota", { p_count: 1, p_date: phDateStr });
+
           const errMsg = resendData?.message || `Resend error HTTP ${resendRes.status}`;
           console.error(`[ZEZ Notify-RFQ] Resend delivery failed for ${recipientEmail}:`, errMsg);
 
@@ -414,6 +391,9 @@ serve(async (req: Request) => {
           failedCount++;
         }
       } catch (err: any) {
+        // Network exception: release the reserved quota slot
+        await supabaseAdmin.rpc("release_email_quota", { p_count: 1, p_date: phDateStr });
+
         console.error(`[ZEZ Notify-RFQ] Network exception sending to ${recipientEmail}:`, err);
         const isTerminal = (log.attempt_count || 1) >= (log.max_attempts || 3);
 
@@ -495,6 +475,17 @@ function generateRfqEmailHtml(data: {
     )
     .join("");
 
+  const companyName = data.siteSettings.company_name || "ZEZ Automation Corporation";
+  const officeAddress = data.siteSettings.office_address?.trim();
+  const phonePrimary = data.siteSettings.phone_primary?.trim();
+  const mobileViber = data.siteSettings.mobile_viber?.trim();
+  const emailSales = data.siteSettings.email_sales?.trim();
+
+  const contactList: string[] = [];
+  if (phonePrimary) contactList.push(`Tel: ${escapeHtml(phonePrimary)}`);
+  if (mobileViber) contactList.push(`Mobile/Viber: ${escapeHtml(mobileViber)}`);
+  if (emailSales) contactList.push(`Email: ${escapeHtml(emailSales)}`);
+
   return `
 <!DOCTYPE html>
 <html>
@@ -518,9 +509,10 @@ function generateRfqEmailHtml(data: {
                     <div style="font-size: 20px; font-weight: 900; letter-spacing: 0.5px; color: #ffffff;">
                       ZEZ <span style="color: #B5121B;">AUTOMATION</span>
                     </div>
+                    ${data.siteSettings.tagline ? `
                     <div style="font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 2px;">
                       ${escapeHtml(data.siteSettings.tagline)}
-                    </div>
+                    </div>` : ""}
                   </td>
                   <td align="right">
                     <span style="display: inline-block; background-color: #B5121B; color: #ffffff; font-size: 12px; font-weight: 700; padding: 6px 14px; border-radius: 6px; font-family: monospace;">
@@ -660,15 +652,16 @@ function generateRfqEmailHtml(data: {
             </td>
           </tr>
 
-          <!-- Verified Corporate Footer -->
+          <!-- Verified Corporate Footer (Ommits unverified fields) -->
           <tr>
             <td style="background-color: #f9fafb; padding: 20px 32px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; text-align: center; line-height: 1.6;">
               <div>
-                <strong>${escapeHtml(data.siteSettings.company_name)}</strong> &bull; ${escapeHtml(data.siteSettings.office_address)}
+                <strong>${escapeHtml(companyName)}</strong>${officeAddress ? ` &bull; ${escapeHtml(officeAddress)}` : ''}
               </div>
+              ${contactList.length > 0 ? `
               <div style="margin-top: 4px;">
-                Direct Procurement Hotlines: ${escapeHtml(data.siteSettings.phone_primary)} &bull; ${escapeHtml(data.siteSettings.mobile_viber)} &bull; ${escapeHtml(data.siteSettings.email_sales)}
-              </div>
+                Direct Procurement: ${contactList.join(' &bull; ')}
+              </div>` : ''}
               <div style="margin-top: 8px; color: #9ca3af; font-size: 10px;">
                 You received this alert because your administrator account has RFQ notifications enabled in the ZEZ Operations Portal.
               </div>
@@ -706,8 +699,22 @@ function generateRfqEmailText(data: {
     )
     .join("\n");
 
+  const companyName = data.siteSettings.company_name || "ZEZ Automation Corporation";
+  const officeAddress = data.siteSettings.office_address?.trim();
+  const phonePrimary = data.siteSettings.phone_primary?.trim();
+  const mobileViber = data.siteSettings.mobile_viber?.trim();
+  const emailSales = data.siteSettings.email_sales?.trim();
+
+  const footerParts: string[] = [companyName];
+  if (officeAddress) footerParts.push(officeAddress);
+  const contacts: string[] = [];
+  if (phonePrimary) contacts.push(`Tel: ${phonePrimary}`);
+  if (mobileViber) contacts.push(`Mobile/Viber: ${mobileViber}`);
+  if (emailSales) contacts.push(`Email: ${emailSales}`);
+  if (contacts.length > 0) footerParts.push(contacts.join(" | "));
+
   return `
-${data.siteSettings.company_name.toUpperCase()} - NEW RFQ ALERT
+${companyName.toUpperCase()} - NEW RFQ ALERT
 Reference: ${data.rfqId}
 Submitted: ${data.phFormattedDate} (PST)
 
@@ -732,10 +739,7 @@ OPEN IN ADMIN PORTAL:
 ${data.adminDashboardUrl}
 
 --
-${data.siteSettings.company_name}
-${data.siteSettings.office_address}
-Hotlines: ${data.siteSettings.phone_primary} / ${data.siteSettings.mobile_viber}
-Sales: ${data.siteSettings.email_sales}
+${footerParts.join("\n")}
 `.trim();
 }
 
