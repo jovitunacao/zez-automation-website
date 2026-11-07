@@ -33,6 +33,7 @@ export type ActiveView =
   | 'shop' 
   | 'categories' 
   | 'brands' 
+  | 'services'
   | 'product-detail' 
   | 'rfq' 
   | 'account' 
@@ -122,16 +123,18 @@ interface AppContextType {
 
 const INITIAL_SETTINGS: SiteSettings = {
   companyName: 'ZEZ Automation Corporation',
-  tagline: 'Powering Business Through Technology',
-  phonePrimary: '(02) 8800-9390',
-  phoneSecondary: '+63 917 800 9390',
-  mobileViber: '+63 917 800 9390',
-  emailSales: 'sales@zezautomation.ph',
-  emailSupport: 'support@zezautomation.ph',
-  officeAddress: 'Unit 1402, Corporate Center, Emerald Avenue, Ortigas Center, Pasig City, Metro Manila 1605 Philippines',
+  tagline: 'Technology. Infrastructure. Reliability.',
+  phonePrimary: '+63 917 719 8503',
+  phoneSecondary: '+63 995 444 8050',
+  mobileViber: '+63 917 719 8503',
+  emailSales: 'zigmatechdvo2003@gmail.com',
+  emailSupport: 'zigmatechdvo2003@gmail.com',
+  officeAddress: 'Blk 32, Lot 20, Phase 2, Deca Homes Esperanza, Tigatto, Davao City 8000, Philippines',
+  davaoAddress: 'Blk 32, Lot 20, Phase 2, Deca Homes Esperanza, Tigatto, Davao City 8000, Philippines',
+  zamboangaAddress: '1 Mayor Jaldon St., Canelar, Zamboanga City 7000, Philippines',
   operatingHours: 'Mon - Fri: 8:30 AM - 5:30 PM (PST)',
-  bannerAnnouncement: 'Direct Corporate ICT Procurement & Project Pricing Available for Q4 2026. Submit your RFQ today.',
-  isBannerActive: true
+  bannerAnnouncement: 'Enterprise ICT Equipment & Professional Infrastructure Engineering Services.',
+  isBannerActive: false
 };
 
 const INITIAL_RFQS: QuotationRequest[] = [

@@ -46,11 +46,11 @@ export const AboutUsView: React.FC = () => {
             </div>
 
             <p>
-              ZEZ Automation Corporation was established with a singular mission: to eliminate friction in business-to-business ICT equipment acquisition. Headquartered in Metro Manila's bustling Ortigas business district, we bridge top-tier international hardware manufacturers with Philippine organizations.
+              ZEZ Automation Corporation is an enterprise ICT equipment distributor and technology infrastructure engineering solutions provider in the Philippines. Operating under the Zigmatech-related branding structure with active operational hubs in Davao City and Zamboanga City, we bridge top-tier hardware manufacturers and engineering contracting with Philippine enterprises and infrastructure projects.
             </p>
 
             <p>
-              Whether configuring high-density data center core switches, rolling out structured Cat6A copper trunks, safeguarding campus perimeters with AI-enabled CCTV surveillance, or supplying heavy-duty uninterruptible power systems (UPS), ZEZ provides reliable commercial sourcing, transparent billing, and dedicated pre-sales engineering.
+              In addition to B2B hardware distribution—including high-density switches, structured cabling, server enclosures, and CCTV surveillance—ZEZ delivers turnkey engineering and installation works encompassing Fire Detection and Alarm Systems (FDAS), Fire Protection, Public Address, Mechanical & HVAC ducting, Telephone systems, and standby industrial Generators.
             </p>
 
             <div className="pt-2 grid grid-cols-2 gap-4 text-xs font-semibold">
@@ -61,23 +61,30 @@ export const AboutUsView: React.FC = () => {
               </div>
 
               <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-1">
-                <span className="text-2xl font-black text-[#B5121B]">24h</span>
-                <p className="text-gray-900 font-bold">Pro-Forma SLA</p>
-                <p className="text-gray-500 font-normal">Quick itemized turnaround on business RFQ inquiries.</p>
+                <span className="text-2xl font-black text-[#B5121B]">7</span>
+                <p className="text-gray-900 font-bold">Engineering Disciplines</p>
+                <p className="text-gray-500 font-normal">Turnkey cabling, MEP, life safety & power works.</p>
               </div>
             </div>
           </div>
 
           <div className="relative rounded-2xl overflow-hidden shadow-xl border border-gray-200">
             <img
-              src="https://images.unsplash.com/photo-1544197150-199123fa6d8d?auto=format&fit=crop&w=1000&q=80"
-              alt="ZEZ Automation Technology Distribution Infrastructure"
+              src="/hero/hero-datacenter.jpg"
+              alt="ZEZ Automation Technology Distribution & Engineering Infrastructure"
+              loading="lazy"
+              onError={(e) => {
+                const target = e.currentTarget;
+                if (!target.src.endsWith('/categories/category-fallback.svg')) {
+                  target.src = '/categories/category-fallback.svg';
+                }
+              }}
               className="w-full h-96 object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[#292F36]/80 via-transparent to-transparent flex items-end p-6 text-white">
               <div>
-                <span className="text-xs font-mono text-red-300">Ortigas Center Central Depot</span>
-                <p className="text-sm font-bold">Fast Metro Manila and Nationwide Regional Logistics</p>
+                <span className="text-xs font-mono text-red-300">Davao City & Zamboanga City Operations Hubs</span>
+                <p className="text-sm font-bold">Direct Regional Dispatch & Nationwide Logistics Coverage</p>
               </div>
             </div>
           </div>

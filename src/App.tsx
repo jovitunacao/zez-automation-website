@@ -23,6 +23,7 @@ import { CustomerAccountView } from './views/CustomerAccountView';
 import { AdminDashboardView } from './views/AdminDashboardView';
 import { AboutUsView } from './views/AboutUsView';
 import { ContactUsView } from './views/ContactUsView';
+import { ServicesView } from './views/ServicesView';
 
 const MainContent: React.FC = () => {
   const { activeView, activeRfqForPrint, setActiveRfqForPrint } = useApp();
@@ -43,6 +44,7 @@ const MainContent: React.FC = () => {
         {activeView === 'shop' && <ShopView />}
         {activeView === 'categories' && <CategoriesView />}
         {activeView === 'brands' && <BrandsView />}
+        {activeView === 'services' && <ServicesView />}
         {activeView === 'product-detail' && <ProductDetailView />}
         {activeView === 'rfq' && <RfqCheckoutView />}
         {activeView === 'account' && <CustomerAccountView />}

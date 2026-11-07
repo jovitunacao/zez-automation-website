@@ -28,8 +28,26 @@ ALTER TABLE public.administrator_users
 ADD COLUMN IF NOT EXISTS receive_rfq_notifications BOOLEAN DEFAULT true NOT NULL;
 
 -- ------------------------------------------------------------------------------
--- 2. SECURITY DEFINER HELPER: public.is_super_admin()
+-- 2. SECURITY DEFINER HELPERS: public.is_admin() & public.is_super_admin()
 -- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+STABLE
+AS $$
+    SELECT EXISTS (
+        SELECT 1 
+        FROM public.administrator_users 
+        WHERE id = auth.uid() 
+          AND is_active = true
+    );
+$$;
+
+REVOKE ALL ON FUNCTION public.is_admin() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_admin() TO anon, authenticated, service_role;
+
 CREATE OR REPLACE FUNCTION public.is_super_admin()
 RETURNS BOOLEAN
 LANGUAGE sql
@@ -813,28 +831,58 @@ COMMIT;
 -- INSTRUCTIONS FOR CONFIGURING NOTIFY_WEBHOOK_SECRET & AUTOMATIC DISPATCH
 -- ==============================================================================
 --
--- OPTION A: SUPABASE DATABASE WEBHOOK (RECOMMENDED - ZERO SECRETS IN SQL)
+-- 1. SUPABASE DATABASE WEBHOOK (SINGLE CANONICAL DISPATCHER)
 -- ------------------------------------------------------------------------------
--- 1. In Supabase Dashboard, navigate to Database -> Webhooks -> "Create a new webhook".
--- 2. Name: "dispatch-rfq-notifications"
--- 3. Table: "quotation_requests"
--- 4. Events: check [Insert]
--- 5. Type: Supabase Edge Function
--- 6. Function: "notify-rfq"
--- 7. HTTP Headers: Add header "x-webhook-secret" with your secret value.
+-- In Supabase Dashboard -> Database -> Webhooks -> "Create a new webhook":
+--   Name: dispatch-rfq-notifications
+--   Table: quotation_requests
+--   Events: [X] Insert (Leave Update/Delete unchecked)
+--   Type: Supabase Edge Functions
+--   Edge Function: notify-rfq
+--   HTTP Headers:
+--     Header 1: x-webhook-secret: <your-NOTIFY_WEBHOOK_SECRET-value>
+--     Header 2 (optional, if JWT gateway is enabled): Authorization: Bearer <your-supabase-anon-key>
 --
--- OPTION B: SECURE DATABASE STORAGE (USING private.app_secrets)
+-- Note on Edge Function Deployment:
+-- Deploying with `--no-verify-jwt` lets the function authenticate directly via
+-- `x-webhook-secret` without requiring client JWT tokens:
+--   supabase functions deploy notify-rfq --no-verify-jwt
+--
+-- 2. SCHEDULED RETRY MECHANISM (FREE-TIER SUPABASE COMPATIBLE)
 -- ------------------------------------------------------------------------------
--- Run this in Supabase SQL Editor (replace with your actual project URL and a random secret):
+-- If an email fails due to a network timeout or daily quota exhaustion (100 emails/day),
+-- the log status is set to 'retrying' or 'quota_exceeded'.
+-- You can choose either of these 100% free scheduled retry runners:
 --
+-- OPTION A: GitHub Actions (Recommended — Zero Supabase Compute Usage)
+-- A ready-to-run scheduled workflow is provided at:
+--   .github/workflows/retry-rfq-notifications.yml
+-- Runs every 30 minutes via GitHub Actions, executing a curl request with the webhook secret.
+--
+-- OPTION B: PostgreSQL pg_cron inside Supabase (Supported on Free Tier)
+-- If pg_cron is enabled in Supabase Database Extensions, run this in SQL Editor:
+--
+-- CREATE EXTENSION IF NOT EXISTS pg_cron WITH SCHEMA extensions;
 -- CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
 --
--- INSERT INTO private.app_secrets (key, value) VALUES
---   ('notify_rfq_url', 'https://<your-project-ref>.supabase.co/functions/v1/notify-rfq'),
---   ('notify_webhook_secret', '<your-random-32-char-secret>')
--- ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW();
+-- SELECT cron.schedule(
+--   'retry-unprocessed-rfq-notifications',
+--   '*/15 * * * *',
+--   $$
+--   SELECT extensions.http_post(
+--     url := (SELECT value FROM private.app_secrets WHERE key = 'notify_rfq_url'),
+--     headers := jsonb_build_object(
+--       'Content-Type', 'application/json',
+--       'x-webhook-secret', (SELECT value FROM private.app_secrets WHERE key = 'notify_webhook_secret')
+--     ),
+--     body := '{"process_pending": true}'::jsonb
+--   );
+--   $$
+-- );
 --
--- (Note: Ordinary authenticated users cannot read or write to private.app_secrets)
+-- OPTION C: Admin Dashboard Interactive Sweep
+-- Authorized administrators can also click "Dispatch Pending Queue" or "Retry" on any
+-- specific failed notification entry under the Admin Dashboard "RFQ Alerts" tab.
 --
 -- ==============================================================================
 -- VERIFICATION QUERIES (Run these after applying the migration above)

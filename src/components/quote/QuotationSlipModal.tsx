@@ -81,10 +81,9 @@ export const QuotationSlipModal: React.FC<QuotationSlipModalProps> = ({ rfq, onC
               <Logo size="lg" variant="light" />
               <div className="mt-3 text-xs text-gray-600 space-y-0.5">
                 <p className="font-semibold text-gray-900">{siteSettings.companyName}</p>
-                <p>Unit 1402, Corporate Center, Emerald Ave, Ortigas Center</p>
-                <p>Pasig City, Metro Manila 1605, Philippines</p>
-                <p>TIN: 009-845-312-000 NV · SEC Reg: CS2016-12941</p>
-                <p>Tel: {siteSettings.phonePrimary} · Web: www.zezautomation.ph</p>
+                <p>{siteSettings.officeAddress}</p>
+                <p>Phone: {siteSettings.phonePrimary} · Email: {siteSettings.emailSales}</p>
+                <p>Web: https://zez.zigmatech.shop</p>
               </div>
             </div>
 

@@ -328,8 +328,9 @@ export async function syncRfqToSupabase(rfq: QuotationRequest): Promise<{
     const serverRfqId = rpcData?.rfq_id || rfq.id;
     console.info(`[ZEZ Supabase] Atomic quotation successfully persisted with reference ID: ${serverRfqId}`);
 
-    // Non-blocking fire-and-forget: Trigger server-side notify-rfq Edge Function
-    triggerRfqNotificationBackground(serverRfqId);
+    // Single Dispatch Principle: Automatic dispatch is strictly handled server-side
+    // via Supabase Database Webhook on public.quotation_requests (INSERT) -> notify-rfq.
+    // Client-side execution here is omitted to eliminate race conditions and dual-dispatch.
 
     return { 
       success: true, 

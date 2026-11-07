@@ -1,0 +1,42 @@
+name: Scheduled RFQ Notification Retry Worker
+
+on:
+  schedule:
+    # Runs every 30 minutes (24/7, within GitHub Actions free tier)
+    - cron: '*/30 * * * *'
+  workflow_dispatch: # Allows manual trigger from GitHub Actions tab
+
+jobs:
+  retry-pending-rfq-notifications:
+    name: Process Pending & Recovering RFQ Notifications
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Trigger notify-rfq Edge Function
+        run: |
+          if [ -z "${{ secrets.NOTIFY_WEBHOOK_SECRET }}" ] || [ -z "${{ secrets.SUPABASE_NOTIFY_RFQ_URL }}" ]; then
+            echo "Skipping: SUPABASE_NOTIFY_RFQ_URL or NOTIFY_WEBHOOK_SECRET repository secret not configured."
+            echo "To enable automated background retries, add these secrets to your GitHub repository Settings -> Secrets and variables -> Actions."
+            exit 0
+          fi
+
+          echo "Triggering pending notification sweep on Supabase Edge Function..."
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST "${{ secrets.SUPABASE_NOTIFY_RFQ_URL }}" \
+            -H "Content-Type: application/json" \
+            -H "x-webhook-secret: ${{ secrets.NOTIFY_WEBHOOK_SECRET }}" \
+            -d '{"process_pending": true}')
+
+          BODY=$(echo "$RESPONSE" | sed -e '$d')
+          STATUS=$(echo "$RESPONSE" | tail -n1 | cut -d: -f2)
+
+          echo "Response Status: $STATUS"
+          echo "Response Body: $BODY"
+
+          if [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 300 ]; then
+            echo "Notification sweep executed successfully."
+          else
+            echo "Warning: Notification sweep returned HTTP $STATUS"
+            # Do not fail job hard on network blips to avoid noisy error emails
+            exit 0
+          fi

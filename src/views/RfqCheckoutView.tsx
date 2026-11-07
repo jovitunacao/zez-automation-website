@@ -180,7 +180,7 @@ export const RfqCheckoutView: React.FC = () => {
           </div>
 
           <div className="pt-4 text-xs text-gray-500">
-            For urgent procurement expediting, call our Pasig hotline at <strong>{siteSettings.phonePrimary}</strong> quoting reference <strong>{submittedRfq.id}</strong>.
+            For urgent procurement expediting, call our sales hotline at <strong>{siteSettings.phonePrimary}</strong> quoting reference <strong>{submittedRfq.id}</strong>.
           </div>
         </div>
       </div>

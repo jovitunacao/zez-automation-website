@@ -126,6 +126,8 @@ export interface SiteSettings {
   emailSales: string;
   emailSupport: string;
   officeAddress: string;
+  davaoAddress?: string;
+  zamboangaAddress?: string;
   operatingHours: string;
   bannerAnnouncement: string;
   isBannerActive: boolean;

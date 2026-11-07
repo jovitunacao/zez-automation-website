@@ -55,77 +55,92 @@ export const ContactUsView: React.FC = () => {
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-2xs space-y-6">
             <h2 className="font-bold text-base text-[#292F36] pb-3 border-b border-gray-100">
-              Corporate Headquarters
+              Operations & Branch Offices
             </h2>
 
             <div className="space-y-4 text-xs text-gray-700">
+              {/* Davao City Office */}
               <div className="flex items-start gap-3">
                 <div className="p-2 rounded-lg bg-red-50 text-[#B5121B] shrink-0 mt-0.5">
                   <MapPin className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-gray-900">Pasig City Main Office & Depot</h4>
-                  <p className="text-gray-600 mt-0.5 leading-relaxed">{siteSettings.officeAddress}</p>
+                  <h4 className="font-bold text-gray-900">Davao City Office</h4>
+                  <p className="text-gray-600 mt-0.5 leading-relaxed">
+                    Blk 32, Lot 20, Phase 2, Deca Homes Esperanza, Tigatto, Davao City 8000, Philippines
+                  </p>
                 </div>
               </div>
 
+              {/* Zamboanga City Office */}
               <div className="flex items-start gap-3">
+                <div className="p-2 rounded-lg bg-red-50 text-[#B5121B] shrink-0 mt-0.5">
+                  <MapPin className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-gray-900">Zamboanga City Office</h4>
+                  <p className="text-gray-600 mt-0.5 leading-relaxed">
+                    1 Mayor Jaldon St., Canelar, Zamboanga City 7000, Philippines
+                  </p>
+                </div>
+              </div>
+
+              {/* Direct Telephone Lines */}
+              <div className="flex items-start gap-3 pt-1 border-t border-gray-100">
                 <div className="p-2 rounded-lg bg-red-50 text-[#B5121B] shrink-0 mt-0.5">
                   <Phone className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="font-bold text-gray-900">Direct Telephone Hotlines</h4>
+                  <h4 className="font-bold text-gray-900">Direct Telephone Lines</h4>
                   <p className="text-gray-600 mt-0.5">
-                    Landline: <strong className="text-gray-900">{siteSettings.phonePrimary}</strong>
+                    Mobile / Phone: <a href="tel:+639177198503" className="text-gray-900 font-bold hover:underline">+63-917-719-8503</a>
                   </p>
                   <p className="text-gray-600">
-                    Mobile / Viber: <strong className="text-gray-900">{siteSettings.mobileViber}</strong>
+                    Secondary Line: <a href="tel:+639954448050" className="text-gray-900 font-bold hover:underline">+63-995-444-8050</a>
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-start gap-3">
+              {/* Email Routing */}
+              <div className="flex items-start gap-3 pt-1 border-t border-gray-100">
                 <div className="p-2 rounded-lg bg-red-50 text-[#B5121B] shrink-0 mt-0.5">
                   <Mail className="w-4 h-4" />
                 </div>
                 <div>
                   <h4 className="font-bold text-gray-900">Email Routing</h4>
                   <p className="text-gray-600 mt-0.5">
-                    Sales & RFQs: <a href={`mailto:${siteSettings.emailSales}`} className="text-[#B5121B] font-semibold hover:underline">{siteSettings.emailSales}</a>
-                  </p>
-                  <p className="text-gray-600">
-                    RMA & Warranty: <a href={`mailto:${siteSettings.emailSupport}`} className="text-gray-900 hover:underline">{siteSettings.emailSupport}</a>
+                    Inquiries & RFQs: <a href="mailto:zigmatechdvo2003@gmail.com" className="text-[#B5121B] font-semibold hover:underline">zigmatechdvo2003@gmail.com</a>
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-start gap-3">
+              {/* Operating Hours */}
+              <div className="flex items-start gap-3 pt-1 border-t border-gray-100">
                 <div className="p-2 rounded-lg bg-red-50 text-[#B5121B] shrink-0 mt-0.5">
                   <Clock className="w-4 h-4" />
                 </div>
                 <div>
                   <h4 className="font-bold text-gray-900">Operational Hours</h4>
                   <p className="text-gray-600 mt-0.5">{siteSettings.operatingHours}</p>
-                  <p className="text-gray-400 text-[11px]">Warehouse dispatch: 9:00 AM - 4:30 PM</p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Regional Depots Card */}
+          {/* Regional Logistics Forwarding Card */}
           <div className="bg-gray-50 rounded-xl border border-gray-200 p-6 space-y-4 text-xs">
             <h3 className="font-bold text-sm text-[#292F36]">Nationwide Logistics Forwarding</h3>
             <p className="text-gray-600 leading-relaxed">
-              In addition to Metro Manila direct couriers, we provide freight delivery via accredited shipping partners to provincial hubs:
+              We provide delivery and freight forwarding via accredited shipping logistics partners nationwide across Luzon, Visayas, and Mindanao.
             </p>
             <div className="space-y-2">
               <div className="p-2.5 bg-white rounded-lg border border-gray-200">
-                <span className="font-bold text-gray-900 block">Visayas Regional Sourcing:</span>
-                <span className="text-gray-600">Cebu City, Iloilo, Bacolod freight forwarding available.</span>
+                <span className="font-bold text-gray-900 block">Mindanao Operations Hubs:</span>
+                <span className="text-gray-600">Direct dispatch and engineering coverage in Davao City & Zamboanga City.</span>
               </div>
               <div className="p-2.5 bg-white rounded-lg border border-gray-200">
-                <span className="font-bold text-gray-900 block">Mindanao Logistics:</span>
-                <span className="text-gray-600">Davao City, Cagayan de Oro port forwarding and door-to-door.</span>
+                <span className="font-bold text-gray-900 block">Luzon & Visayas Freight:</span>
+                <span className="text-gray-600">Direct freight delivery to Metro Manila, Cebu, and provincial centers.</span>
               </div>
             </div>
           </div>

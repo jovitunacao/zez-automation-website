@@ -94,11 +94,14 @@ serve(async (req: Request) => {
     });
 
     // 2. SERVER-SIDE AUTHENTICATION & ACCESS CONTROL
-    // Caller MUST provide either a valid x-webhook-secret OR a valid Bearer token for an active admin
+    // Caller MUST provide either a valid webhook secret OR a valid Bearer token for an active admin / service role
     let isAuthorized = false;
 
-    // Check webhook secret header (from database trigger or Supabase database webhook)
-    const incomingSecret = req.headers.get("x-webhook-secret");
+    // Check webhook secret header (supports standard x-webhook-secret and x-supabase-webhook-secret)
+    const incomingSecret = 
+      req.headers.get("x-webhook-secret") || 
+      req.headers.get("x-supabase-webhook-secret");
+
     if (webhookSecret && incomingSecret && incomingSecret === webhookSecret) {
       isAuthorized = true;
     }
@@ -109,11 +112,16 @@ serve(async (req: Request) => {
       if (authHeader) {
         const token = authHeader.replace(/^Bearer\s+/i, "").trim();
 
-        // Check if caller used the service role key directly
+        // 1. Check if caller used the service role key directly
         if (token === supabaseServiceKey) {
           isAuthorized = true;
-        } else {
-          // Verify user session JWT and check if caller is an active administrator
+        } 
+        // 2. Check if caller passed the webhook secret inside the Authorization header
+        else if (webhookSecret && token === webhookSecret) {
+          isAuthorized = true;
+        } 
+        // 3. Verify user session JWT and check if caller is an active administrator
+        else {
           const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
           if (!userError && userData?.user?.id) {
             const { data: adminRow } = await supabaseAdmin
@@ -331,8 +339,12 @@ serve(async (req: Request) => {
 
       const subject = `[ZEZ RFQ] New Quotation Request: ${rfq.id} — ${rfq.customer_company_name || rfq.customer_full_name}`;
 
-      // Idempotency key per recipient, RFQ, and attempt
-      const idempotencyKey = `rfq_${rfq.id}_${recipientEmail}_attempt_${log.attempt_count}`;
+      // STABLE IDEMPOTENCY KEY PER RFQ-RECIPIENT PAIR ACROSS RETRIES
+      // By keeping the idempotency key invariant across retries, Resend guarantees zero duplicates:
+      // if an attempt was delivered but the network died before writing back to DB, a retry will
+      // return the cached delivery record rather than sending an identical second email.
+      const sanitizedRecipient = recipientEmail.toLowerCase().trim().replace(/[^a-z0-9_.-]/g, '_');
+      const idempotencyKey = `rfq_${rfq.id}_${sanitizedRecipient}`.slice(0, 200);
 
       try {
         const resendRes = await fetch(RESEND_API_URL, {

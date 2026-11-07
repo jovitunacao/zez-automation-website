@@ -228,13 +228,12 @@ export const Header: React.FC = () => {
           <div className="bg-[#292F36] text-gray-300 text-xs py-2 px-4 sm:px-8 border-b border-gray-800 transition-opacity duration-200">
             <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-4 flex-wrap">
-                <div className="flex items-center gap-1.5 text-white font-medium">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-                  <span>PHILIPPINE ICT SUPPLIES DISTRIBUTOR</span>
+                <div className="flex items-center gap-1.5 text-white font-medium text-xs tracking-wide">
+                  <span>ICT EQUIPMENT DISTRIBUTION & ENGINEERING SERVICES</span>
                 </div>
                 <div className="hidden md:flex items-center gap-1.5 text-gray-400">
                   <MapPin className="w-3.5 h-3.5 text-[#B5121B]" />
-                  <span>Ortigas Center, Pasig City · Metro Manila Depot</span>
+                  <span>Davao City & Zamboanga City Hubs</span>
                 </div>
                 <div className="hidden lg:flex items-center gap-1 text-gray-400">
                   <Clock className="w-3.5 h-3.5" />
@@ -244,11 +243,11 @@ export const Header: React.FC = () => {
 
               <div className="flex items-center gap-4">
                 <a 
-                  href={`tel:${siteSettings.phonePrimary.replace(/[^0-9+]/g, '')}`} 
+                  href="tel:+639177198503" 
                   className="flex items-center gap-1.5 text-gray-200 hover:text-white transition-colors"
                 >
                   <Phone className="w-3.5 h-3.5 text-[#B5121B]" />
-                  <span className="font-semibold">{siteSettings.phonePrimary}</span>
+                  <span className="font-semibold">+63-917-719-8503</span>
                 </a>
                 <div className="h-3 w-px bg-gray-700 hidden sm:block" />
                 <button
@@ -261,9 +260,10 @@ export const Header: React.FC = () => {
                 <div className="h-3 w-px bg-gray-700" />
                 <button
                   onClick={() => handleNavClick('admin')}
-                  className="text-amber-400 hover:text-amber-300 transition-colors font-medium flex items-center gap-1 text-[11px]"
+                  className="text-gray-400 hover:text-amber-400 transition-colors font-medium flex items-center gap-1 text-[11px]"
+                  title="Administrator & Staff Portal"
                 >
-                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <ShieldAlert className="w-3.5 h-3.5 text-gray-500 hover:text-amber-400" />
                   <span>Staff Portal</span>
                 </button>
               </div>
@@ -598,6 +598,20 @@ export const Header: React.FC = () => {
         <nav className={`bg-white border-t border-gray-100 hidden md:block ${isCompact ? 'py-0' : ''}`}>
           <div className="max-w-7xl mx-auto px-4 sm:px-8 flex items-center justify-between">
             <div className="flex items-center gap-1 lg:gap-2 text-sm font-semibold text-[#292F36]">
+              {/* Home Link */}
+              <button
+                onClick={() => handleNavClick('home')}
+                className={`transition-colors border-b-2 ${
+                  isCompact ? 'px-3 py-2 text-xs' : 'px-3 py-3 text-sm'
+                } ${
+                  activeView === 'home'
+                    ? 'border-[#B5121B] text-[#B5121B]'
+                    : 'border-transparent hover:text-[#B5121B]'
+                }`}
+              >
+                Home
+              </button>
+
               {/* All Products Link */}
               <button
                 onClick={() => handleNavClick('shop')}
@@ -609,8 +623,7 @@ export const Header: React.FC = () => {
                     : 'border-transparent hover:text-[#B5121B]'
                 }`}
               >
-                <Layers className={`${isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} text-[#B5121B]`} />
-                <span>Shop All Products</span>
+                <span>Products</span>
               </button>
 
               {/* Categories Dropdown */}
@@ -672,6 +685,20 @@ export const Header: React.FC = () => {
                   </div>
                 )}
               </div>
+
+              {/* Our Services Link */}
+              <button
+                onClick={() => handleNavClick('services')}
+                className={`transition-colors border-b-2 flex items-center gap-1.5 ${
+                  isCompact ? 'px-3 py-2 text-xs' : 'px-3 py-3 text-sm'
+                } ${
+                  activeView === 'services'
+                    ? 'border-[#B5121B] text-[#B5121B]'
+                    : 'border-transparent hover:text-[#B5121B]'
+                }`}
+              >
+                <span>Our Services</span>
+              </button>
 
               {/* Brands Dropdown */}
               <div 
@@ -764,7 +791,7 @@ export const Header: React.FC = () => {
                 }`}
               >
                 <FileText className={isCompact ? 'w-3 h-3' : 'w-3.5 h-3.5'} />
-                <span>Submit RFQ Inquiry</span>
+                <span>Request a Quotation</span>
               </button>
             </div>
           </div>
@@ -784,13 +811,19 @@ export const Header: React.FC = () => {
                 onClick={() => handleNavClick('shop')}
                 className="text-left py-2 font-semibold text-gray-800 hover:text-[#B5121B]"
               >
-                Shop All Products
+                Products (Shop)
               </button>
               <button
                 onClick={() => handleNavClick('categories')}
                 className="text-left py-2 font-semibold text-gray-800 hover:text-[#B5121B]"
               >
-                Product Categories (12)
+                Equipment Categories (12)
+              </button>
+              <button
+                onClick={() => handleNavClick('services')}
+                className="text-left py-2 font-semibold text-gray-800 hover:text-[#B5121B]"
+              >
+                Our Services (7 Disciplines)
               </button>
               <button
                 onClick={() => handleNavClick('brands')}
@@ -802,13 +835,13 @@ export const Header: React.FC = () => {
                 onClick={() => handleNavClick('rfq')}
                 className="text-left py-2 font-semibold text-[#B5121B]"
               >
-                Request for Quotation
+                Request a Quotation (RFQ)
               </button>
               <button
                 onClick={() => handleNavClick('account')}
                 className="text-left py-2 font-semibold text-gray-800 hover:text-[#B5121B]"
               >
-                Customer Account / Track Orders
+                Track Quotations & Orders
               </button>
               <button
                 onClick={() => handleNavClick('about')}
@@ -820,13 +853,14 @@ export const Header: React.FC = () => {
                 onClick={() => handleNavClick('contact')}
                 className="text-left py-2 font-semibold text-gray-800 hover:text-[#B5121B]"
               >
-                Contact & Branch Directory
+                Contact Us & Locations
               </button>
               <button
                 onClick={() => handleNavClick('admin')}
-                className="text-left py-2 font-semibold text-amber-600"
+                className="text-left py-2 font-semibold text-gray-500 hover:text-amber-600 text-xs flex items-center gap-1.5"
               >
-                Admin Dashboard
+                <ShieldAlert className="w-3.5 h-3.5" />
+                <span>Staff Portal</span>
               </button>
             </div>
 
