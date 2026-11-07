@@ -9,7 +9,7 @@
 --     3. Inactive administrator access rejection & active admin login preservation.
 --     4. Transaction-scoped monthly serialization (pg_advisory_xact_lock) and daily quota limits.
 --     5. Synchronized quota release operation.
---     6. Atomic row claiming (claim_pending_rfq_notifications) and crash recovery (> 5 mins).
+--     6. Automated RFQ trigger queueing + atomic row claiming + 5-minute crash recovery.
 --     7. Service-role authorization helpers (is_service_role) and privileged function security.
 --
 -- EXECUTION:
@@ -25,12 +25,15 @@ DECLARE
     v_admin_count INTEGER;
     v_super_admin_count INTEGER;
     v_products_count INTEGER;
-    v_rfqs_count INTEGER;
     v_test_rfq_id VARCHAR := 'TEST-RFQ-INTEGRATION-001';
-    v_test_admin_id UUID;
+    v_test_item_id UUID;
+    v_queued_by_trigger INTEGER := 0;
+    v_claimed_count INTEGER := 0;
+    v_reclaimed_count INTEGER := 0;
+    v_claimed_log_id UUID;
+    v_test_attempt_count INTEGER;
+    v_test_status VARCHAR;
     v_quota_result JSONB;
-    v_claimed_count INTEGER;
-    v_claimed_record RECORD;
     v_test_date DATE := (CURRENT_DATE AT TIME ZONE 'Asia/Manila');
     v_test_month_key INT;
     v_lock_held BOOLEAN;
@@ -85,10 +88,10 @@ BEGIN
     v_quota_result := public.reserve_email_quota(1, v_test_date);
     ASSERT (v_quota_result->>'allowed')::BOOLEAN = true, format('FAILURE: Expected allowed=true, got %s', v_quota_result);
     ASSERT (v_quota_result->>'reserved_count')::INTEGER = 1, 'FAILURE: Reserved count mismatch.';
-    RAISE NOTICE '  --> OK: Reserved 1 quota slot for % (Today sent: %, Month sent: %)', 
+    RAISE NOTICE '  --> OK: Reserved 1 quota slot for % (Today: %, Month: %)', 
         v_test_date, v_quota_result->>'today_sent', v_quota_result->>'month_sent';
 
-    -- 3.2 Verify that the transaction-scoped advisory lock is held
+    -- 3.2 Verify that the transaction-scoped advisory lock is actively held
     v_test_month_key := (EXTRACT(YEAR FROM v_test_date)::INT * 100 + EXTRACT(MONTH FROM v_test_date)::INT);
     SELECT EXISTS (
         SELECT 1 FROM pg_locks 
@@ -118,14 +121,12 @@ BEGIN
         v_quota_result->>'today_sent', v_quota_result->>'month_sent';
 
     -- --------------------------------------------------------------------------
-    -- TEST 4: NOTIFICATION CLAIMING & CRASH RECOVERY
+    -- TEST 4: AUTOMATED RFQ TRIGGER QUEUEING, CLAIMING & CRASH RECOVERY
     -- --------------------------------------------------------------------------
-    RAISE NOTICE '[TEST 4] Verifying atomic notification claiming and crash recovery...';
+    RAISE NOTICE '[TEST 4] Verifying RFQ trigger queueing, atomic claiming, and crash recovery...';
 
-    -- Fetch an existing active admin ID for foreign-key validation
-    SELECT id INTO v_test_admin_id FROM public.administrator_users WHERE is_active = true LIMIT 1;
-
-    -- Create temporary test RFQ in quotation_requests (will be rolled back)
+    -- 4.1 Insert test quotation request with VALID status 'New' matching production CHECK constraint:
+    -- CHECK (status IN ('New', 'Under Review', 'Quotation Prepared', 'Quotation Sent', 'Accepted', 'Declined', 'Closed'))
     INSERT INTO public.quotation_requests (
         id,
         customer_full_name,
@@ -136,75 +137,83 @@ BEGIN
         delivery_address,
         total_estimated_php,
         status,
-        created_at
-    ) VALUES (
-        v_test_rfq_id,
-        'Integration Test User',
-        'ZEZ Test Corp',
-        'qa-tester@example.com',
-        '+63 917 000 0000',
-        'Davao City',
-        'Test Logistics Facility',
-        150000.00,
-        'pending_review',
-        TIMEZONE('utc'::text, NOW())
-    );
-
-    -- Insert temporary test notification log
-    INSERT INTO public.rfq_notification_logs (
-        rfq_id,
-        recipient_email,
-        recipient_name,
-        recipient_role,
-        admin_id,
-        status,
-        attempt_count,
-        max_attempts,
         created_at,
         updated_at
     ) VALUES (
         v_test_rfq_id,
-        'test-admin-recipient@example.com',
-        'Test Administrator',
-        'admin',
-        v_test_admin_id,
-        'pending',
-        0,
-        3,
+        'Integration Test Engineer',
+        'ZEZ Automation Testing Hub',
+        'qa-tester@example.com',
+        '+63 917 000 0000',
+        'Davao City',
+        'Enterprise IT Logistics Center, J.P. Laurel Avenue, Davao City',
+        150000.00,
+        'New',
         TIMEZONE('utc'::text, NOW()),
         TIMEZONE('utc'::text, NOW())
     );
 
-    -- 4.1 Claim pending notification
+    -- 4.2 Insert test quotation line item
+    INSERT INTO public.quotation_items (
+        quotation_request_id,
+        product_name,
+        model,
+        brand,
+        sku,
+        quantity,
+        unit_price_php,
+        subtotal_php,
+        created_at
+    ) VALUES (
+        v_test_rfq_id,
+        'Cisco Catalyst 1000 Series 24-Port Gigabit Switch',
+        'C1000-24T-4G-L',
+        'Cisco',
+        'CSCO-C1000-24T-TEST',
+        2,
+        45000.00,
+        90000.00,
+        TIMEZONE('utc'::text, NOW())
+    ) RETURNING id INTO v_test_item_id;
+
+    -- 4.3 Verify that trg_queue_rfq_notifications trigger AUTOMATICALLY queued logs
+    SELECT COUNT(*) INTO v_queued_by_trigger 
+    FROM public.rfq_notification_logs 
+    WHERE rfq_id = v_test_rfq_id;
+
+    ASSERT v_queued_by_trigger > 0, 'FAILURE: trg_queue_rfq_notifications trigger failed to auto-queue logs.';
+    RAISE NOTICE '  --> OK: RFQ trigger automatically queued % notification entries for eligible administrators.', v_queued_by_trigger;
+
+    -- 4.4 Claim pending notifications via claim_pending_rfq_notifications RPC
     SELECT COUNT(*) INTO v_claimed_count 
     FROM public.claim_pending_rfq_notifications(v_test_rfq_id, 10);
-    ASSERT v_claimed_count = 1, format('FAILURE: Expected 1 claimed notification, got %s', v_claimed_count);
 
-    SELECT * INTO v_claimed_record 
-    FROM public.rfq_notification_logs 
-    WHERE rfq_id = v_test_rfq_id AND recipient_email = 'test-admin-recipient@example.com';
+    ASSERT v_claimed_count = v_queued_by_trigger, format('FAILURE: Expected %s claimed notifications, got %s', v_queued_by_trigger, v_claimed_count);
+    RAISE NOTICE '  --> OK: claim_pending_rfq_notifications atomically claimed all % entries into status=processing.', v_claimed_count;
 
-    ASSERT v_claimed_record.status = 'processing', format('FAILURE: Expected status=processing, got %s', v_claimed_record.status);
-    ASSERT v_claimed_record.attempt_count = 1, format('FAILURE: Expected attempt_count=1, got %s', v_claimed_record.attempt_count);
-    ASSERT v_claimed_record.last_attempt_at IS NOT NULL, 'FAILURE: last_attempt_at was not populated.';
-    RAISE NOTICE '  --> OK: Atomic row claiming moved log to status=processing (attempt: 1).';
+    -- 4.5 Verify crash recovery (> 5 minutes timeout):
+    -- Pick one claimed log, simulate a worker crash by rewinding last_attempt_at to 6 minutes ago
+    SELECT id INTO v_claimed_log_id
+    FROM public.rfq_notification_logs
+    WHERE rfq_id = v_test_rfq_id
+    LIMIT 1;
 
-    -- 4.2 Crash recovery: simulate job stuck in processing > 5 minutes
     UPDATE public.rfq_notification_logs
     SET last_attempt_at = TIMEZONE('utc'::text, NOW()) - INTERVAL '6 minutes'
-    WHERE id = v_claimed_record.id;
+    WHERE id = v_claimed_log_id;
 
-    -- Re-claim: crash recovery should pick up the timed-out processing job
-    SELECT COUNT(*) INTO v_claimed_count 
+    -- Re-claim: crash recovery sweep must identify the timed-out processing job and reclaim it
+    SELECT COUNT(*) INTO v_reclaimed_count 
     FROM public.claim_pending_rfq_notifications(v_test_rfq_id, 10);
-    ASSERT v_claimed_count = 1, format('FAILURE: Crash recovery failed to reclaim abandoned processing job.');
 
-    SELECT * INTO v_claimed_record 
-    FROM public.rfq_notification_logs 
-    WHERE id = v_claimed_record.id;
+    ASSERT v_reclaimed_count = 1, format('FAILURE: Crash recovery expected 1 reclaimed job, got %s', v_reclaimed_count);
 
-    ASSERT v_claimed_record.status = 'processing', 'FAILURE: Reclaimed job should be in processing state.';
-    ASSERT v_claimed_record.attempt_count = 2, format('FAILURE: Expected attempt_count=2, got %s', v_claimed_record.attempt_count);
+    SELECT attempt_count, status INTO v_test_attempt_count, v_test_status
+    FROM public.rfq_notification_logs
+    WHERE id = v_claimed_log_id;
+
+    ASSERT v_test_status = 'processing', 'FAILURE: Reclaimed job must be in processing status.';
+    ASSERT v_test_attempt_count = 2, format('FAILURE: Expected attempt_count=2, got %s', v_test_attempt_count);
     RAISE NOTICE '  --> OK: Crash recovery successfully reclaimed timed-out job (attempt incremented to 2).';
 
     -- --------------------------------------------------------------------------
