@@ -1,5 +1,5 @@
 // ==============================================================================
-// ZEZ AUTOMATION CORPORATION - SUPABASE EDGE FUNCTION: notify-rfq
+// ZEZ AUTOMATION CORPORATION - SUPABASE EDGE FUNCTION: notify-rfq (HARDENED)
 // Runtime: Deno / TypeScript (Supabase Edge Runtime)
 //
 // PURPOSE:
@@ -7,25 +7,33 @@
 //   when a new Request for Quotation (RFQ) is submitted on the ZEZ website.
 //   Integrates with Resend API using server-side credentials.
 //
+// SECURITY & RELIABILITY GUARDS:
+//   1. Explicit server-side authorization: requires x-webhook-secret header OR
+//      valid Bearer JWT of an active administrator or service-role. Unauthorized
+//      requests are immediately rejected with HTTP 401.
+//   2. Atomic row claiming via PostgreSQL 'claim_pending_rfq_notifications' RPC:
+//      uses FOR UPDATE SKIP LOCKED to prevent duplicate emails under concurrent invocations.
+//   3. Resend Idempotency-Key headers ('rfq_{id}_{recipient}_{attempt}') for zero-duplicate guarantee.
+//   4. Enforces both daily (100) and monthly (3,000) Resend Free tier quota ceilings.
+//   5. Fetches corporate branding and contact details dynamically from public.site_settings.
+//
 // ENVIRONMENT VARIABLES REQUIRED:
 //   - RESEND_API_KEY: Resend API key (re_xxxx)
 //   - RESEND_FROM_EMAIL: Verified sender address e.g. "ZEZ Procurement <notifications@zezautomation.ph>"
+//   - NOTIFY_WEBHOOK_SECRET: Secret shared with database webhook / pg_net trigger
 //   - PUBLIC_SITE_URL: Website URL e.g. "https://zezautomation.ph"
-//   - SUPABASE_URL: Automatically injected by Supabase Edge runtime
-//   - SUPABASE_SERVICE_ROLE_KEY: Automatically injected by Supabase Edge runtime
+//   - SUPABASE_URL: Injected automatically by Supabase Edge runtime
+//   - SUPABASE_SERVICE_ROLE_KEY: Injected automatically by Supabase Edge runtime
 // ==============================================================================
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
 
 const RESEND_API_URL = "https://api.resend.com/emails";
-const RESEND_DAILY_LIMIT = 100; // Resend Free Tier daily ceiling
-const RESEND_MONTHLY_LIMIT = 3000; // Resend Free Tier monthly ceiling
 
-// Standard CORS headers for pre-flight & browser calls
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-webhook-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
@@ -45,8 +53,18 @@ interface RequestPayload {
   };
 }
 
+interface SiteSettings {
+  company_name: string;
+  tagline: string;
+  phone_primary: string;
+  phone_secondary: string;
+  mobile_viber: string;
+  email_sales: string;
+  office_address: string;
+}
+
 serve(async (req: Request) => {
-  // Handle CORS preflight
+  // 1. Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
@@ -56,19 +74,69 @@ serve(async (req: Request) => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
     const fromEmail = Deno.env.get("RESEND_FROM_EMAIL") || "ZEZ RFQ Portal <onboarding@resend.dev>";
+    const webhookSecret = Deno.env.get("NOTIFY_WEBHOOK_SECRET");
     const siteUrl = Deno.env.get("PUBLIC_SITE_URL") || "https://zezautomation.ph";
 
     if (!supabaseUrl || !supabaseServiceKey) {
       return new Response(
-        JSON.stringify({ error: "Missing Supabase runtime environment variables." }),
+        JSON.stringify({ error: "Missing Supabase service runtime environment variables." }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
     // Initialize administrative Supabase client
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false },
+    });
 
-    // Parse request body
+    // 2. SERVER-SIDE AUTHENTICATION & ACCESS CONTROL
+    // Caller MUST provide either a valid x-webhook-secret OR a valid Bearer token for an active admin
+    let isAuthorized = false;
+
+    // Check webhook secret header (from database trigger or Supabase database webhook)
+    const incomingSecret = req.headers.get("x-webhook-secret");
+    if (webhookSecret && incomingSecret && incomingSecret === webhookSecret) {
+      isAuthorized = true;
+    }
+
+    // Check Bearer authorization token
+    if (!isAuthorized) {
+      const authHeader = req.headers.get("Authorization");
+      if (authHeader) {
+        const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+
+        // Check if caller used the service role key directly
+        if (token === supabaseServiceKey) {
+          isAuthorized = true;
+        } else {
+          // Verify user session JWT and check if caller is an active administrator
+          const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
+          if (!userError && userData?.user?.id) {
+            const { data: adminRow } = await supabaseAdmin
+              .from("administrator_users")
+              .select("id, role, is_active")
+              .eq("id", userData.user.id)
+              .eq("is_active", true)
+              .maybeSingle();
+
+            if (adminRow && ["super_admin", "admin", "sales_engineer"].includes(adminRow.role)) {
+              isAuthorized = true;
+            }
+          }
+        }
+      }
+    }
+
+    if (!isAuthorized) {
+      return new Response(
+        JSON.stringify({
+          error: "Unauthorized: Access denied. Missing or invalid webhook secret or administrator session.",
+        }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    // 3. Parse request payload
     let payload: RequestPayload = {};
     if (req.headers.get("content-type")?.includes("application/json")) {
       try {
@@ -78,19 +146,17 @@ serve(async (req: Request) => {
       }
     }
 
-    // Determine target RFQ ID
     const targetRfqId = payload.rfq_id || payload.record?.id;
 
-    // Check Resend API key
+    // 4. Validate Resend API key
     if (!resendApiKey) {
-      console.warn("[ZEZ Notify-RFQ] RESEND_API_KEY is not configured in Supabase secrets.");
-      // If RFQ is specified, log warning in rfq_notification_logs so admin sees it in dashboard
+      console.warn("[ZEZ Notify-RFQ] RESEND_API_KEY secret is not configured in Supabase project.");
       if (targetRfqId) {
-        await supabase
+        await supabaseAdmin
           .from("rfq_notification_logs")
           .update({
             status: "failed",
-            error_message: "RESEND_API_KEY secret is not set in Supabase project settings. Email was not sent.",
+            error_message: "RESEND_API_KEY secret not configured in Supabase Edge Function secrets.",
             updated_at: new Date().toISOString(),
           })
           .eq("rfq_id", targetRfqId)
@@ -100,13 +166,13 @@ serve(async (req: Request) => {
       return new Response(
         JSON.stringify({
           success: false,
-          warning: "RESEND_API_KEY not set. Check Supabase Edge Function secrets.",
+          warning: "RESEND_API_KEY secret not set. Notification queued but email paused.",
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Check daily Resend quota in Philippine Standard Time (UTC+8)
+    // 5. Check email quota in Philippine Standard Time (UTC+8)
     const phDateStr = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Manila",
       year: "numeric",
@@ -114,91 +180,126 @@ serve(async (req: Request) => {
       day: "2-digit",
     }).format(new Date());
 
-    const { data: quotaRow } = await supabase
-      .from("email_quota_tracking")
-      .select("sent_count")
-      .eq("date_key", phDateStr)
-      .maybeSingle();
+    const { data: quotaStatus, error: quotaCheckError } = await supabaseAdmin.rpc("check_email_quota", {
+      p_date: phDateStr,
+    });
 
-    const todaySentCount = quotaRow?.sent_count || 0;
-    if (todaySentCount >= RESEND_DAILY_LIMIT) {
-      console.warn(`[ZEZ Notify-RFQ] Daily Resend Free quota reached: ${todaySentCount}/${RESEND_DAILY_LIMIT}`);
+    if (quotaCheckError) {
+      console.warn("[ZEZ Notify-RFQ] Warning checking quota RPC:", quotaCheckError.message);
+    } else if (quotaStatus && !quotaStatus.can_send) {
+      console.warn(`[ZEZ Notify-RFQ] Email quota ceiling reached: ${quotaStatus.reason}`);
       if (targetRfqId) {
-        await supabase
+        await supabaseAdmin
           .from("rfq_notification_logs")
           .update({
             status: "quota_exceeded",
-            error_message: `Daily Resend limit reached (${todaySentCount}/${RESEND_DAILY_LIMIT} sent today). Notification paused.`,
+            error_message: quotaStatus.reason,
             updated_at: new Date().toISOString(),
           })
           .eq("rfq_id", targetRfqId)
-          .eq("status", "pending");
+          .in("status", ["pending", "retrying"]);
       }
 
       return new Response(
         JSON.stringify({
           success: false,
-          error: "Daily Resend Free limit reached (100 emails/day). RFQ was saved; email paused.",
-          todaySentCount,
+          error: quotaStatus.reason,
+          quotaStatus,
         }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // Determine pending notifications to process
-    let query = supabase
-      .from("rfq_notification_logs")
-      .select("*, quotation_requests(*, quotation_items(*))")
-      .in("status", ["pending", "retrying"]);
+    // 6. ATOMIC ROW CLAIMING VIA RPC (FOR UPDATE SKIP LOCKED)
+    // Ensures concurrent calls never process or send the same notification twice!
+    const { data: claimedRows, error: claimError } = await supabaseAdmin.rpc("claim_pending_rfq_notifications", {
+      p_rfq_id: targetRfqId || null,
+      p_limit: 15,
+    });
 
-    if (targetRfqId) {
-      query = query.eq("rfq_id", targetRfqId);
-    }
-
-    // Limit batch size to prevent timeout and respect free tier bursts
-    const { data: pendingLogs, error: pendingError } = await query.limit(20);
-
-    if (pendingError) {
-      console.error("[ZEZ Notify-RFQ] Error querying notification logs:", pendingError);
+    if (claimError) {
+      console.error("[ZEZ Notify-RFQ] Error claiming pending notifications:", claimError);
       return new Response(
-        JSON.stringify({ error: pendingError.message }),
+        JSON.stringify({ error: `Failed to claim notification queue: ${claimError.message}` }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    if (!pendingLogs || pendingLogs.length === 0) {
+    if (!claimedRows || claimedRows.length === 0) {
       return new Response(
-        JSON.stringify({ message: "No pending RFQ notifications to dispatch.", dispatched: 0 }),
+        JSON.stringify({
+          message: "No pending RFQ notifications available or already claimed by another worker.",
+          dispatched: 0,
+        }),
         { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
+    }
+
+    // 7. Load verified business settings from public.site_settings
+    let siteSettings: SiteSettings = {
+      company_name: "ZEZ Automation Corporation",
+      tagline: "Powering Business Through Technology",
+      phone_primary: "(02) 8800-9390",
+      phone_secondary: "+63 917 800 9390",
+      mobile_viber: "+63 917 800 9390",
+      email_sales: "sales@zezautomation.ph",
+      office_address: "Unit 1402, Corporate Center, Emerald Avenue, Ortigas Center, Pasig City, Metro Manila 1605 Philippines",
+    };
+
+    try {
+      const { data: settingsRow } = await supabaseAdmin
+        .from("site_settings")
+        .select("*")
+        .eq("id", "current")
+        .maybeSingle();
+
+      if (settingsRow) {
+        siteSettings = {
+          company_name: settingsRow.company_name || siteSettings.company_name,
+          tagline: settingsRow.tagline || siteSettings.tagline,
+          phone_primary: settingsRow.phone_primary || siteSettings.phone_primary,
+          phone_secondary: settingsRow.phone_secondary || siteSettings.phone_secondary,
+          mobile_viber: settingsRow.mobile_viber || siteSettings.mobile_viber,
+          email_sales: settingsRow.email_sales || siteSettings.email_sales,
+          office_address: settingsRow.office_address || siteSettings.office_address,
+        };
+      }
+    } catch (settingsErr) {
+      console.warn("[ZEZ Notify-RFQ] Using verified default corporate details:", settingsErr);
     }
 
     let dispatchedCount = 0;
     let failedCount = 0;
 
-    // Process each notification individually
-    for (const log of pendingLogs) {
-      // Re-verify daily quota inside loop
-      if (todaySentCount + dispatchedCount >= RESEND_DAILY_LIMIT) {
-        await supabase
+    // 8. Process each claimed notification individually
+    for (const log of claimedRows) {
+      // Re-verify quota mid-batch
+      const { data: liveQuota } = await supabaseAdmin.rpc("check_email_quota", { p_date: phDateStr });
+      if (liveQuota && !liveQuota.can_send) {
+        await supabaseAdmin
           .from("rfq_notification_logs")
           .update({
             status: "quota_exceeded",
-            error_message: "Daily Resend Free ceiling reached during batch dispatch.",
+            error_message: liveQuota.reason,
             updated_at: new Date().toISOString(),
           })
           .eq("id", log.id);
         continue;
       }
 
-      const rfq = log.quotation_requests;
-      if (!rfq) {
-        // Missing parent RFQ, cancel orphaned log
-        await supabase
+      // Fetch parent RFQ and associated quotation items
+      const { data: rfq, error: rfqError } = await supabaseAdmin
+        .from("quotation_requests")
+        .select("*, quotation_items(*)")
+        .eq("id", log.rfq_id)
+        .maybeSingle();
+
+      if (rfqError || !rfq) {
+        await supabaseAdmin
           .from("rfq_notification_logs")
           .update({
             status: "cancelled",
-            error_message: "Parent quotation request row was deleted or not found.",
+            error_message: "Parent quotation request record was deleted or not found.",
             updated_at: new Date().toISOString(),
           })
           .eq("id", log.id);
@@ -217,7 +318,7 @@ serve(async (req: Request) => {
         timeStyle: "short",
       }).format(submissionDate);
 
-      // Build HTML email template
+      // Build HTML & plaintext email templates with verified corporate info
       const emailHtml = generateRfqEmailHtml({
         recipientName,
         rfqId: rfq.id,
@@ -234,6 +335,7 @@ serve(async (req: Request) => {
         items,
         phFormattedDate,
         adminDashboardUrl: `${siteUrl}/?view=admin&tab=rfqs&rfq=${encodeURIComponent(rfq.id)}`,
+        siteSettings,
       });
 
       const emailText = generateRfqEmailText({
@@ -247,17 +349,21 @@ serve(async (req: Request) => {
         items,
         phFormattedDate,
         adminDashboardUrl: `${siteUrl}/?view=admin&tab=rfqs&rfq=${encodeURIComponent(rfq.id)}`,
+        siteSettings,
       });
 
       const subject = `[ZEZ RFQ] New Quotation Request: ${rfq.id} — ${rfq.customer_company_name || rfq.customer_full_name}`;
 
+      // Idempotency key per recipient, RFQ, and attempt
+      const idempotencyKey = `rfq_${rfq.id}_${recipientEmail}_attempt_${log.attempt_count}`;
+
       try {
-        // Dispatch individual email via Resend REST API
         const resendRes = await fetch(RESEND_API_URL, {
           method: "POST",
           headers: {
             "Authorization": `Bearer ${resendApiKey}`,
             "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
           },
           body: JSON.stringify({
             from: fromEmail,
@@ -275,14 +381,12 @@ serve(async (req: Request) => {
 
         if (resendRes.ok && resendData?.id) {
           // Success: Mark log as sent
-          await supabase
+          await supabaseAdmin
             .from("rfq_notification_logs")
             .update({
               status: "sent",
               resend_id: resendData.id,
               sent_at: new Date().toISOString(),
-              last_attempt_at: new Date().toISOString(),
-              attempt_count: (log.attempt_count || 0) + 1,
               error_message: null,
               updated_at: new Date().toISOString(),
             })
@@ -290,23 +394,19 @@ serve(async (req: Request) => {
 
           dispatchedCount++;
 
-          // Upsert email quota counter
-          await supabase.rpc("increment_email_quota_counter", { p_date: phDateStr });
+          // Concurrency-safe atomic quota increment
+          await supabaseAdmin.rpc("increment_email_quota_counter", { p_date: phDateStr });
         } else {
-          // Failure from Resend
           const errMsg = resendData?.message || `Resend error HTTP ${resendRes.status}`;
           console.error(`[ZEZ Notify-RFQ] Resend delivery failed for ${recipientEmail}:`, errMsg);
 
-          const newAttemptCount = (log.attempt_count || 0) + 1;
-          const nextStatus = newAttemptCount >= (log.max_attempts || 3) ? "failed" : "retrying";
+          const isTerminal = (log.attempt_count || 1) >= (log.max_attempts || 3);
 
-          await supabase
+          await supabaseAdmin
             .from("rfq_notification_logs")
             .update({
-              status: nextStatus,
+              status: isTerminal ? "failed" : "retrying",
               error_message: errMsg,
-              attempt_count: newAttemptCount,
-              last_attempt_at: new Date().toISOString(),
               updated_at: new Date().toISOString(),
             })
             .eq("id", log.id);
@@ -315,14 +415,13 @@ serve(async (req: Request) => {
         }
       } catch (err: any) {
         console.error(`[ZEZ Notify-RFQ] Network exception sending to ${recipientEmail}:`, err);
-        const newAttemptCount = (log.attempt_count || 0) + 1;
-        await supabase
+        const isTerminal = (log.attempt_count || 1) >= (log.max_attempts || 3);
+
+        await supabaseAdmin
           .from("rfq_notification_logs")
           .update({
-            status: newAttemptCount >= 3 ? "failed" : "retrying",
+            status: isTerminal ? "failed" : "retrying",
             error_message: err.message || "Network exception contacting Resend API.",
-            attempt_count: newAttemptCount,
-            last_attempt_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           })
           .eq("id", log.id);
@@ -336,7 +435,7 @@ serve(async (req: Request) => {
         success: true,
         dispatched: dispatchedCount,
         failed: failedCount,
-        totalProcessed: pendingLogs.length,
+        totalClaimed: claimedRows.length,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
@@ -369,6 +468,7 @@ function generateRfqEmailHtml(data: {
   items: any[];
   phFormattedDate: string;
   adminDashboardUrl: string;
+  siteSettings: SiteSettings;
 }): string {
   const itemsHtml = data.items
     .map(
@@ -419,11 +519,11 @@ function generateRfqEmailHtml(data: {
                       ZEZ <span style="color: #B5121B;">AUTOMATION</span>
                     </div>
                     <div style="font-size: 11px; color: #9ca3af; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 2px;">
-                      Corporate Procurement &amp; Distribution
+                      ${escapeHtml(data.siteSettings.tagline)}
                     </div>
                   </td>
                   <td align="right">
-                    <span style="display: inline-block; background-color: #B5121B; color: #ffffff; font-size: 12px; font-weight: 700; padding: 6px 14px; rounded: 6px; border-radius: 6px; font-family: monospace;">
+                    <span style="display: inline-block; background-color: #B5121B; color: #ffffff; font-size: 12px; font-weight: 700; padding: 6px 14px; border-radius: 6px; font-family: monospace;">
                       ${escapeHtml(data.rfqId)}
                     </span>
                   </td>
@@ -479,6 +579,11 @@ function generateRfqEmailHtml(data: {
                     <td style="padding: 4px 0; color: #6b7280;">Delivery Location:</td>
                     <td style="padding: 4px 0; color: #111827;">${escapeHtml(data.deliveryLocation || "Metro Manila")}</td>
                   </tr>
+                  ${data.deliveryAddress ? `
+                  <tr>
+                    <td style="padding: 4px 0; color: #6b7280;">Delivery Address:</td>
+                    <td style="padding: 4px 0; color: #111827;">${escapeHtml(data.deliveryAddress)}</td>
+                  </tr>` : ""}
                   ${data.tinNumber ? `
                   <tr>
                     <td style="padding: 4px 0; color: #6b7280;">TIN Number:</td>
@@ -555,16 +660,16 @@ function generateRfqEmailHtml(data: {
             </td>
           </tr>
 
-          <!-- Footer -->
+          <!-- Verified Corporate Footer -->
           <tr>
-            <td style="background-color: #f9fafb; padding: 20px 32px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af; text-align: center; line-height: 1.5;">
+            <td style="background-color: #f9fafb; padding: 20px 32px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #6b7280; text-align: center; line-height: 1.6;">
               <div>
-                <strong>ZEZ Automation Corporation</strong> &bull; Unit 1402, Corporate Center, Ortigas Center, Pasig City
+                <strong>${escapeHtml(data.siteSettings.company_name)}</strong> &bull; ${escapeHtml(data.siteSettings.office_address)}
               </div>
               <div style="margin-top: 4px;">
-                Direct Procurement Hotlines: (02) 8800-9390 &bull; +63 917 800 9390 &bull; sales@zezautomation.ph
+                Direct Procurement Hotlines: ${escapeHtml(data.siteSettings.phone_primary)} &bull; ${escapeHtml(data.siteSettings.mobile_viber)} &bull; ${escapeHtml(data.siteSettings.email_sales)}
               </div>
-              <div style="margin-top: 8px; color: #cbd5e1;">
+              <div style="margin-top: 8px; color: #9ca3af; font-size: 10px;">
                 You received this alert because your administrator account has RFQ notifications enabled in the ZEZ Operations Portal.
               </div>
             </td>
@@ -590,6 +695,7 @@ function generateRfqEmailText(data: {
   items: any[];
   phFormattedDate: string;
   adminDashboardUrl: string;
+  siteSettings: SiteSettings;
 }): string {
   const itemsText = data.items
     .map(
@@ -601,7 +707,7 @@ function generateRfqEmailText(data: {
     .join("\n");
 
   return `
-ZEZ AUTOMATION CORPORATION - NEW RFQ ALERT
+${data.siteSettings.company_name.toUpperCase()} - NEW RFQ ALERT
 Reference: ${data.rfqId}
 Submitted: ${data.phFormattedDate} (PST)
 
@@ -626,9 +732,10 @@ OPEN IN ADMIN PORTAL:
 ${data.adminDashboardUrl}
 
 --
-ZEZ Automation Corporation
-Corporate Procurement & ICT Distribution
-sales@zezautomation.ph
+${data.siteSettings.company_name}
+${data.siteSettings.office_address}
+Hotlines: ${data.siteSettings.phone_primary} / ${data.siteSettings.mobile_viber}
+Sales: ${data.siteSettings.email_sales}
 `.trim();
 }
 

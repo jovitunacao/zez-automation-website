@@ -159,6 +159,7 @@ export interface AdministratorUser {
 export type NotificationStatus = 
   | 'pending' 
   | 'queued' 
+  | 'processing'
   | 'sent' 
   | 'failed' 
   | 'retrying' 

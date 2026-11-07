@@ -1,5 +1,5 @@
 -- ==============================================================================
--- ZEZ AUTOMATION CORPORATION - PHASE 4 DATABASE MIGRATION
+-- ZEZ AUTOMATION CORPORATION - PHASE 4 DATABASE MIGRATION (CORRECTED & HARDENED)
 -- Migration Date: 2026-11-06
 -- File: supabase/migrations/20261106_rfq_notifications_and_super_admin_security.sql
 --
@@ -7,11 +7,13 @@
 --   1. Restrict administrator management to authorized Super Admins.
 --   2. Add 'receive_rfq_notifications' preference to administrator_users.
 --   3. Safeguard against deleting or deactivating the last active Super Admin.
---   4. Prevent privilege escalation (non-super admins cannot alter roles or is_active).
+--   4. Prevent privilege escalation (non-super admins cannot alter roles, active status, or profile info).
 --   5. Create 'rfq_notification_logs' table for idempotent delivery tracking, retries, and audits.
 --   6. Create 'email_quota_tracking' table to respect Resend Free tier limits (100/day, 3000/mo).
---   7. Server-side database trigger to automatically queue notifications for eligible active admins.
---   8. Ensure RFQs are always preserved even if email notification delivery encounters errors.
+--   7. Implement atomic, concurrency-safe quota checking and counter increment RPCs.
+--   8. Implement atomic row-claiming RPC (claim_pending_rfq_notifications) using FOR UPDATE SKIP LOCKED.
+--   9. Server-side database trigger to queue notifications and dispatch via pg_net async HTTP POST.
+--  10. Protect RFQ submission: RFQ creation NEVER fails or blocks even if email dispatcher errors.
 --
 -- DO NOT EXECUTE AUTOMATICALLY. Review in Supabase SQL Editor before applying.
 -- ==============================================================================
@@ -31,7 +33,7 @@ CREATE OR REPLACE FUNCTION public.is_super_admin()
 RETURNS BOOLEAN
 LANGUAGE sql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 STABLE
 AS $$
     SELECT EXISTS (
@@ -43,14 +45,13 @@ AS $$
     );
 $$;
 
--- Ensure execute permissions
 REVOKE ALL ON FUNCTION public.is_super_admin() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.is_super_admin() TO anon, authenticated, service_role;
 
 -- ------------------------------------------------------------------------------
 -- 3. TIGHTEN ROW LEVEL SECURITY ON public.administrator_users
 --    - View: Active administrators can view the administrator directory.
---    - Insert: Exclusively authorized Super Admins.
+--    - Insert: Exclusively authorized Super Admins (or service_role).
 --    - Update: Super Admins can update any administrator. Regular admins can only
 --              update their own notification preference (enforced via trigger below).
 --    - Delete: Exclusively authorized Super Admins.
@@ -61,6 +62,7 @@ DROP POLICY IF EXISTS "Admins can view and manage admin users" ON public.adminis
 DROP POLICY IF EXISTS "Admins view administrator directory" ON public.administrator_users;
 DROP POLICY IF EXISTS "Super admins insert administrators" ON public.administrator_users;
 DROP POLICY IF EXISTS "Super admins update administrators" ON public.administrator_users;
+DROP POLICY IF EXISTS "Admins update administrator records" ON public.administrator_users;
 DROP POLICY IF EXISTS "Super admins delete administrators" ON public.administrator_users;
 
 -- 3.1 SELECT: Any active administrator can view the administrator directory
@@ -77,7 +79,7 @@ FOR INSERT
 TO authenticated
 WITH CHECK (public.is_super_admin());
 
--- 3.3 UPDATE: Super Admins can update any admin; regular admins can only update themselves
+-- 3.3 UPDATE: Super Admins can update any admin; regular admins can only update their own record
 CREATE POLICY "Admins update administrator records"
 ON public.administrator_users
 FOR UPDATE
@@ -99,13 +101,12 @@ CREATE OR REPLACE FUNCTION public.protect_administrator_integrity()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_active_super_admins INTEGER;
     v_is_caller_super_admin BOOLEAN;
 BEGIN
-    -- Determine if current session is a Super Admin
     v_is_caller_super_admin := public.is_super_admin();
 
     -- On UPDATE:
@@ -120,6 +121,12 @@ BEGIN
             END IF;
             IF NEW.is_active <> OLD.is_active THEN
                 RAISE EXCEPTION 'Access Denied: Administrators cannot deactivate their own administrative accounts.';
+            END IF;
+            IF NEW.email <> OLD.email THEN
+                RAISE EXCEPTION 'Access Denied: Email address cannot be modified directly.';
+            END IF;
+            IF NEW.full_name <> OLD.full_name THEN
+                RAISE EXCEPTION 'Access Denied: Profile name cannot be modified directly by standard administrators.';
             END IF;
         END IF;
 
@@ -178,9 +185,7 @@ CREATE TABLE IF NOT EXISTS public.rfq_notification_logs (
     recipient_name VARCHAR(255) NOT NULL,
     recipient_role VARCHAR(50),
     admin_id UUID REFERENCES public.administrator_users(id) ON DELETE SET NULL,
-    status VARCHAR(50) DEFAULT 'pending' NOT NULL CHECK (
-        status IN ('pending', 'queued', 'sent', 'failed', 'retrying', 'quota_exceeded', 'cancelled')
-    ),
+    status VARCHAR(50) DEFAULT 'pending' NOT NULL,
     resend_id VARCHAR(255),
     attempt_count INTEGER DEFAULT 0 NOT NULL,
     max_attempts INTEGER DEFAULT 3 NOT NULL,
@@ -192,6 +197,11 @@ CREATE TABLE IF NOT EXISTS public.rfq_notification_logs (
     updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL,
     CONSTRAINT rfq_notification_unique_recipient UNIQUE (rfq_id, recipient_email)
 );
+
+-- Ensure allowed status values include 'processing'
+ALTER TABLE public.rfq_notification_logs DROP CONSTRAINT IF EXISTS rfq_notification_logs_status_check;
+ALTER TABLE public.rfq_notification_logs ADD CONSTRAINT rfq_notification_logs_status_check 
+    CHECK (status IN ('pending', 'queued', 'processing', 'sent', 'failed', 'retrying', 'quota_exceeded', 'cancelled'));
 
 CREATE INDEX IF NOT EXISTS idx_rfq_notif_rfq_id ON public.rfq_notification_logs(rfq_id);
 CREATE INDEX IF NOT EXISTS idx_rfq_notif_status ON public.rfq_notification_logs(status);
@@ -228,7 +238,6 @@ CREATE TABLE IF NOT EXISTS public.email_quota_tracking (
     updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW()) NOT NULL
 );
 
--- RLS for quota tracking
 ALTER TABLE public.email_quota_tracking ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Admins view email quota tracking" ON public.email_quota_tracking;
@@ -239,22 +248,247 @@ TO authenticated
 USING (public.is_admin());
 
 -- ------------------------------------------------------------------------------
--- 7. ATOMIC DATABASE TRIGGER: AUTOMATIC RFQ NOTIFICATION QUEUEING
---    Queues notifications for all active, notification-enabled admins whenever
---    an RFQ is created. Never blocks RFQ creation if an error occurs.
+-- 7. CONCURRENCY-SAFE EMAIL QUOTA FUNCTIONS
+-- ------------------------------------------------------------------------------
+
+-- 7.1 Check current quota without incrementing
+CREATE OR REPLACE FUNCTION public.check_email_quota(
+    p_date DATE DEFAULT (CURRENT_DATE AT TIME ZONE 'Asia/Manila')
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_first_day_of_month DATE;
+    v_today_sent INTEGER := 0;
+    v_month_sent INTEGER := 0;
+    v_daily_limit INTEGER := 100;
+    v_monthly_limit INTEGER := 3000;
+BEGIN
+    v_first_day_of_month := DATE_TRUNC('month', p_date);
+
+    SELECT COALESCE(sent_count, 0) INTO v_today_sent
+    FROM public.email_quota_tracking
+    WHERE date_key = p_date;
+
+    SELECT COALESCE(SUM(sent_count), 0) INTO v_month_sent
+    FROM public.email_quota_tracking
+    WHERE date_key >= v_first_day_of_month;
+
+    RETURN jsonb_build_object(
+        'date_key', p_date,
+        'today_sent', v_today_sent,
+        'month_sent', v_month_sent,
+        'daily_limit', v_daily_limit,
+        'monthly_limit', v_monthly_limit,
+        'can_send', (v_today_sent < v_daily_limit AND v_month_sent < v_monthly_limit),
+        'reason', CASE 
+            WHEN v_today_sent >= v_daily_limit THEN 'Daily Resend Free limit (100) reached.'
+            WHEN v_month_sent >= v_monthly_limit THEN 'Monthly Resend Free limit (3,000) reached.'
+            ELSE 'OK'
+        END
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.check_email_quota(DATE) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.check_email_quota(DATE) TO authenticated, service_role;
+
+-- 7.2 Atomic increment counter after successful dispatch
+CREATE OR REPLACE FUNCTION public.increment_email_quota_counter(
+    p_date DATE DEFAULT (CURRENT_DATE AT TIME ZONE 'Asia/Manila')
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_first_day_of_month DATE;
+    v_today_sent INTEGER;
+    v_month_sent INTEGER;
+    v_daily_limit INTEGER := 100;
+    v_monthly_limit INTEGER := 3000;
+BEGIN
+    v_first_day_of_month := DATE_TRUNC('month', p_date);
+
+    -- Calculate current month total before incrementing
+    SELECT COALESCE(SUM(sent_count), 0) INTO v_month_sent
+    FROM public.email_quota_tracking
+    WHERE date_key >= v_first_day_of_month;
+
+    -- Upsert atomic daily counter
+    INSERT INTO public.email_quota_tracking (
+        date_key,
+        sent_count,
+        failed_count,
+        last_sent_at,
+        created_at,
+        updated_at
+    ) VALUES (
+        p_date,
+        1,
+        0,
+        TIMEZONE('utc'::text, NOW()),
+        TIMEZONE('utc'::text, NOW()),
+        TIMEZONE('utc'::text, NOW())
+    )
+    ON CONFLICT (date_key) DO UPDATE
+    SET sent_count = public.email_quota_tracking.sent_count + 1,
+        last_sent_at = TIMEZONE('utc'::text, NOW()),
+        updated_at = TIMEZONE('utc'::text, NOW())
+    RETURNING sent_count INTO v_today_sent;
+
+    v_month_sent := v_month_sent + 1;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'date_key', p_date,
+        'today_sent', v_today_sent,
+        'month_sent', v_month_sent,
+        'daily_limit', v_daily_limit,
+        'monthly_limit', v_monthly_limit,
+        'daily_quota_exceeded', (v_today_sent > v_daily_limit),
+        'monthly_quota_exceeded', (v_month_sent > v_monthly_limit)
+    );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.increment_email_quota_counter(DATE) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.increment_email_quota_counter(DATE) TO authenticated, service_role;
+
+-- ------------------------------------------------------------------------------
+-- 8. ATOMIC ROW CLAIMING RPC: claim_pending_rfq_notifications()
+--    Prevents duplicate emails under concurrent invocations using FOR UPDATE SKIP LOCKED
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.claim_pending_rfq_notifications(
+    p_rfq_id VARCHAR DEFAULT NULL,
+    p_limit INTEGER DEFAULT 10
+)
+RETURNS TABLE (
+    id UUID,
+    rfq_id VARCHAR,
+    recipient_email VARCHAR,
+    recipient_name VARCHAR,
+    recipient_role VARCHAR,
+    admin_id UUID,
+    status VARCHAR,
+    resend_id VARCHAR,
+    attempt_count INTEGER,
+    max_attempts INTEGER,
+    last_attempt_at TIMESTAMPTZ,
+    sent_at TIMESTAMPTZ,
+    error_message TEXT,
+    customer_summary JSONB,
+    created_at TIMESTAMPTZ,
+    updated_at TIMESTAMPTZ
+)
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    RETURN QUERY
+    WITH selected AS (
+        SELECT logs.id
+        FROM public.rfq_notification_logs logs
+        WHERE (p_rfq_id IS NULL OR logs.rfq_id = p_rfq_id)
+          AND logs.status IN ('pending', 'retrying')
+          AND logs.attempt_count < logs.max_attempts
+        ORDER BY logs.created_at ASC
+        LIMIT p_limit
+        FOR UPDATE SKIP LOCKED
+    )
+    UPDATE public.rfq_notification_logs l
+    SET status = 'processing',
+        last_attempt_at = TIMEZONE('utc'::text, NOW()),
+        attempt_count = l.attempt_count + 1,
+        updated_at = TIMEZONE('utc'::text, NOW())
+    FROM selected
+    WHERE l.id = selected.id
+    RETURNING 
+        l.id,
+        l.rfq_id,
+        l.recipient_email,
+        l.recipient_name,
+        l.recipient_role,
+        l.admin_id,
+        l.status,
+        l.resend_id,
+        l.attempt_count,
+        l.max_attempts,
+        l.last_attempt_at,
+        l.sent_at,
+        l.error_message,
+        l.customer_summary,
+        l.created_at,
+        l.updated_at;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.claim_pending_rfq_notifications(VARCHAR, INTEGER) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.claim_pending_rfq_notifications(VARCHAR, INTEGER) TO authenticated, service_role;
+
+-- ------------------------------------------------------------------------------
+-- 9. SERVER-SIDE ASYNC DISPATCH HELPER (pg_net)
+--    Asynchronously posts to notify-rfq Edge Function after RFQ is committed
+-- ------------------------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.dispatch_rfq_notification_server(p_rfq_id VARCHAR)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, extensions, pg_temp
+AS $$
+DECLARE
+    v_url TEXT;
+    v_secret TEXT;
+    v_body JSONB;
+BEGIN
+    -- Read configuration settings
+    v_url := current_setting('app.settings.notify_rfq_url', true);
+    v_secret := current_setting('app.settings.notify_webhook_secret', true);
+
+    IF v_url IS NOT NULL AND v_url <> '' THEN
+        v_body := jsonb_build_object('rfq_id', p_rfq_id);
+        
+        -- Non-blocking async HTTP POST via pg_net
+        PERFORM net.http_post(
+            url := v_url,
+            headers := jsonb_build_object(
+                'Content-Type', 'application/json',
+                'x-webhook-secret', COALESCE(v_secret, '')
+            ),
+            body := v_body,
+            timeout_milliseconds := 5000
+        );
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    -- Never abort caller transaction if HTTP dispatch is unconfigured or errors
+    RAISE WARNING '[ZEZ Notification Dispatch] Server-side HTTP dispatch note: %', SQLERRM;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.dispatch_rfq_notification_server(VARCHAR) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.dispatch_rfq_notification_server(VARCHAR) TO authenticated, service_role;
+
+-- ------------------------------------------------------------------------------
+-- 10. ATOMIC DATABASE TRIGGER: AUTOMATIC RFQ NOTIFICATION QUEUEING & DISPATCH
+--     Queues notifications for all active, notification-enabled admins whenever
+--     an RFQ is created. Never blocks RFQ creation if an error occurs.
 -- ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.queue_rfq_notifications()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_admin RECORD;
     v_summary JSONB;
     v_items_count INTEGER;
 BEGIN
-    -- Build safe customer & item summary for the notification log
     SELECT COUNT(*) INTO v_items_count
     FROM public.quotation_items
     WHERE quotation_request_id = NEW.id;
@@ -277,7 +511,6 @@ BEGIN
           AND receive_rfq_notifications = true
           AND role IN ('super_admin', 'admin', 'sales_engineer')
     LOOP
-        -- Insert idempotent notification queue item
         INSERT INTO public.rfq_notification_logs (
             rfq_id,
             recipient_email,
@@ -302,9 +535,12 @@ BEGIN
         ON CONFLICT (rfq_id, recipient_email) DO NOTHING;
     END LOOP;
 
+    -- Asynchronously invoke server-side dispatcher if pg_net is configured
+    PERFORM public.dispatch_rfq_notification_server(NEW.id);
+
     RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
-    -- Safeguard: Log warning but never abort the RFQ transaction!
+    -- Safeguard: Log warning but never abort the customer RFQ transaction!
     RAISE WARNING '[ZEZ Notification Queue] Error queuing RFQ notifications for %: %', NEW.id, SQLERRM;
     RETURN NEW;
 END;
@@ -317,14 +553,14 @@ FOR EACH ROW
 EXECUTE FUNCTION public.queue_rfq_notifications();
 
 -- ------------------------------------------------------------------------------
--- 8. HELPER RPC: get_notification_stats()
---    Provides live metrics to the Admin Dashboard for quota and delivery health
+-- 11. HELPER RPC: get_notification_stats()
+--     Provides live metrics to the Admin Dashboard for quota and delivery health
 -- ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.get_notification_stats()
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_today_date DATE;
@@ -349,10 +585,10 @@ BEGIN
     WHERE status = 'sent'
       AND (sent_at AT TIME ZONE 'Asia/Manila')::DATE >= v_first_day_of_month;
 
-    -- Count pending & retrying
+    -- Count pending, queued & processing
     SELECT COUNT(*) INTO v_pending_count
     FROM public.rfq_notification_logs
-    WHERE status IN ('pending', 'queued', 'retrying');
+    WHERE status IN ('pending', 'queued', 'processing', 'retrying');
 
     -- Count failed & quota exceeded
     SELECT COUNT(*) INTO v_failed_count
@@ -376,18 +612,17 @@ REVOKE ALL ON FUNCTION public.get_notification_stats() FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_notification_stats() TO authenticated, service_role;
 
 -- ------------------------------------------------------------------------------
--- 9. HELPER RPC: retry_failed_rfq_notification(p_log_id UUID)
+-- 12. HELPER RPC: retry_failed_rfq_notification(p_log_id UUID)
 -- ------------------------------------------------------------------------------
 CREATE OR REPLACE FUNCTION public.retry_failed_rfq_notification(p_log_id UUID)
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, pg_temp
 AS $$
 DECLARE
     v_row public.rfq_notification_logs%ROWTYPE;
 BEGIN
-    -- Must be authenticated active administrator
     IF NOT public.is_admin() THEN
         RETURN jsonb_build_object('success', false, 'error', 'Access denied.');
     END IF;
@@ -403,6 +638,7 @@ BEGIN
     UPDATE public.rfq_notification_logs
     SET status = 'pending',
         error_message = NULL,
+        attempt_count = 0,
         updated_at = TIMEZONE('utc'::text, NOW())
     WHERE id = p_log_id;
 
@@ -414,6 +650,15 @@ REVOKE ALL ON FUNCTION public.retry_failed_rfq_notification(UUID) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.retry_failed_rfq_notification(UUID) TO authenticated, service_role;
 
 COMMIT;
+
+-- ==============================================================================
+-- OPTIONAL CONFIGURATION FOR AUTOMATIC SERVER-SIDE HTTP DISPATCH (pg_net)
+-- Run these commands in Supabase SQL Editor if you wish to use pg_net for auto dispatch:
+--
+-- CREATE EXTENSION IF NOT EXISTS pg_net WITH SCHEMA extensions;
+-- ALTER DATABASE postgres SET "app.settings.notify_rfq_url" = 'https://<your-project-ref>.supabase.co/functions/v1/notify-rfq';
+-- ALTER DATABASE postgres SET "app.settings.notify_webhook_secret" = '<your-notify-webhook-secret>';
+-- ==============================================================================
 
 -- ==============================================================================
 -- VERIFICATION QUERIES (Run these after applying the migration above)
@@ -440,13 +685,15 @@ FROM pg_policies
 WHERE schemaname = 'public' 
   AND tablename = 'administrator_users';
 
--- Verification 3: Confirm rfq_notification_logs table exists
+-- Verification 3: Confirm rfq_notification_logs and email_quota_tracking exist
 SELECT 
-    table_name, 
-    (SELECT COUNT(*) FROM information_schema.columns WHERE table_name = 'rfq_notification_logs') AS columns_count
+    table_name
 FROM information_schema.tables 
 WHERE table_schema = 'public' 
-  AND table_name = 'rfq_notification_logs';
+  AND table_name IN ('rfq_notification_logs', 'email_quota_tracking');
 
 -- Verification 4: Test notification stats helper
 SELECT public.get_notification_stats();
+
+-- Verification 5: Test quota check helper
+SELECT public.check_email_quota();

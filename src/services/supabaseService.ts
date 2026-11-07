@@ -781,23 +781,32 @@ export async function deleteProductImageFromSupabase(filePathOrUrl: string): Pro
  * Fire-and-forget: RFQ saving is never blocked even if the notification server is cold-starting.
  */
 export function triggerRfqNotificationBackground(rfqId: string): void {
-  if (!isSupabaseConfigured() || !supabase || !rfqId) return;
+  const client = supabase;
+  if (!isSupabaseConfigured() || !client || !rfqId) return;
 
-  // Invoke server-side Supabase Edge Function
-  supabase.functions
-    .invoke('notify-rfq', {
-      body: { rfq_id: rfqId }
-    })
-    .then(({ data, error }) => {
-      if (error) {
-        console.warn('[ZEZ Notifications] Background notify-rfq note:', error.message);
-      } else {
-        console.info('[ZEZ Notifications] notify-rfq Edge Function response:', data);
-      }
-    })
-    .catch(err => {
-      console.warn('[ZEZ Notifications] Network exception invoking notify-rfq:', err);
-    });
+  // Note: The PostgreSQL trigger trg_queue_rfq_notifications automatically queues and dispatches
+  // RFQs on the server side upon insertion. If an active administrator session is present in the browser
+  // (e.g. testing RFQ submission from the portal), we also fire an immediate Edge Function pass.
+  client.auth.getSession().then(({ data: sessionData }) => {
+    if (sessionData?.session?.access_token) {
+      client.functions
+        .invoke('notify-rfq', {
+          body: { rfq_id: rfqId }
+        })
+        .then(({ data, error }) => {
+          if (error) {
+            console.warn('[ZEZ Notifications] Background notify-rfq note:', error.message);
+          } else {
+            console.info('[ZEZ Notifications] notify-rfq Edge Function response:', data);
+          }
+        })
+        .catch(err => {
+          console.warn('[ZEZ Notifications] Network exception invoking notify-rfq:', err);
+        });
+    }
+  }).catch(() => {
+    // Handled server-side by PostgreSQL trigger
+  });
 }
 
 /**
