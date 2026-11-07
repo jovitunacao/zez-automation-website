@@ -689,8 +689,11 @@ BEGIN
         ON CONFLICT (rfq_id, recipient_email) DO NOTHING;
     END LOOP;
 
-    -- Asynchronously invoke server-side dispatcher if pg_net is configured
-    PERFORM public.dispatch_rfq_notification_server(NEW.id);
+    -- SINGLE DISPATCH METHOD CONSOLIDATION (PART C):
+    -- Recommended: Supabase Database Webhook on public.quotation_requests (INSERT) -> notify-rfq
+    -- To strictly prevent duplicate dispatching when Database Webhooks are enabled, pg_net dispatch
+    -- is commented out below. If you prefer pg_net over Database Webhooks, uncomment the line below:
+    -- PERFORM public.dispatch_rfq_notification_server(NEW.id);
 
     RETURN NEW;
 EXCEPTION WHEN OTHERS THEN
@@ -860,3 +863,26 @@ WHERE schemaname = 'public' AND tablename = 'administrator_users';
 SELECT table_schema, table_name 
 FROM information_schema.tables 
 WHERE table_name IN ('rfq_notification_logs', 'email_quota_tracking', 'app_secrets');
+
+-- ==============================================================================
+-- ROLLBACK PROCEDURE (For reference only - do not run unless reverting)
+-- ==============================================================================
+/*
+BEGIN;
+  DROP TRIGGER IF EXISTS trg_queue_rfq_notifications ON public.quotation_requests;
+  DROP FUNCTION IF EXISTS public.queue_rfq_notifications();
+  DROP FUNCTION IF EXISTS public.dispatch_rfq_notification_server(VARCHAR);
+  DROP FUNCTION IF EXISTS public.claim_pending_rfq_notifications(VARCHAR, INTEGER);
+  DROP FUNCTION IF EXISTS public.retry_failed_rfq_notification(UUID);
+  DROP FUNCTION IF EXISTS public.get_notification_stats();
+  DROP FUNCTION IF EXISTS public.reserve_email_quota(INTEGER, DATE);
+  DROP FUNCTION IF EXISTS public.release_email_quota(INTEGER, DATE);
+  DROP FUNCTION IF EXISTS public.increment_email_quota_counter(DATE);
+  DROP FUNCTION IF EXISTS public.check_email_quota(DATE);
+  DROP TABLE IF EXISTS public.rfq_notification_logs CASCADE;
+  DROP TABLE IF EXISTS public.email_quota_tracking CASCADE;
+  DROP TABLE IF EXISTS private.app_secrets CASCADE;
+  -- Note: Do NOT drop public.administrator_users or public.quotation_requests
+COMMIT;
+*/
+

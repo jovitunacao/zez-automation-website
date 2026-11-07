@@ -25,6 +25,7 @@ export const HomeView: React.FC = () => {
     categories, 
     brands, 
     products, 
+    productsLoading,
     setActiveView, 
     navigateToProduct, 
     navigateToCategory, 
@@ -168,38 +169,57 @@ export const HomeView: React.FC = () => {
 
         {/* Categories Grid (12 Categories) */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-          {categories.map((cat) => (
-            <div
-              key={cat.id}
-              onClick={() => navigateToCategory(cat.id)}
-              className="group cursor-pointer bg-white rounded-xl border border-gray-200 p-4 hover:border-[#B5121B] hover:shadow-md transition-all duration-200 flex flex-col justify-between"
-            >
-              <div>
-                <div className="w-full h-32 rounded-lg overflow-hidden bg-gray-100 mb-3 relative">
-                  <img
-                    src={cat.imageUrl}
-                    alt={cat.name}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  <span className="absolute top-2 right-2 bg-black/60 text-white text-[10px] font-mono px-2 py-0.5 rounded backdrop-blur-xs">
-                    {cat.itemCount}+ Items
-                  </span>
+          {categories.map((cat) => {
+            const publishedCount = products.filter(
+              (p) => p.categoryId === cat.id && p.isPublished !== false
+            ).length;
+
+            return (
+              <div
+                key={cat.id}
+                onClick={() => navigateToCategory(cat.id)}
+                className="group cursor-pointer bg-white rounded-xl border border-gray-200 p-4 hover:border-[#B5121B] hover:shadow-md transition-all duration-200 flex flex-col justify-between"
+              >
+                <div>
+                  <div className="w-full h-32 rounded-lg overflow-hidden bg-gray-100 mb-3 relative">
+                    <img
+                      src={cat.imageUrl}
+                      alt={cat.name}
+                      loading="lazy"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (!target.src.endsWith('/categories/category-fallback.svg')) {
+                          target.src = '/categories/category-fallback.svg';
+                        }
+                      }}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    <span className="absolute top-2 right-2 bg-black/75 text-white text-[10px] font-semibold px-2 py-0.5 rounded backdrop-blur-xs">
+                      {productsLoading ? (
+                        <span className="animate-pulse">Loading...</span>
+                      ) : publishedCount > 0 ? (
+                        `${publishedCount} ${publishedCount === 1 ? 'Product' : 'Products'}`
+                      ) : (
+                        'Coming Soon'
+                      )}
+                    </span>
+                  </div>
+
+                  <h3 className="font-bold text-sm text-[#292F36] group-hover:text-[#B5121B] transition-colors leading-snug">
+                    {cat.name}
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-1 line-clamp-2 leading-relaxed">
+                    {cat.description}
+                  </p>
                 </div>
 
-                <h3 className="font-bold text-sm text-[#292F36] group-hover:text-[#B5121B] transition-colors leading-snug">
-                  {cat.name}
-                </h3>
-                <p className="text-xs text-gray-500 mt-1 line-clamp-2 leading-relaxed">
-                  {cat.description}
-                </p>
+                <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs font-semibold text-[#B5121B]">
+                  <span>Browse Products</span>
+                  <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                </div>
               </div>
-
-              <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs font-semibold text-[#B5121B]">
-                <span>Browse Products</span>
-                <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 

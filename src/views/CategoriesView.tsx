@@ -3,7 +3,7 @@ import { ChevronRight, Layers, ArrowRight } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
 export const CategoriesView: React.FC = () => {
-  const { categories, products, navigateToCategory, setActiveView } = useApp();
+  const { categories, products, productsLoading, navigateToCategory, setActiveView } = useApp();
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-8 py-8 space-y-10">
@@ -23,7 +23,9 @@ export const CategoriesView: React.FC = () => {
       {/* Categories Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {categories.map((cat) => {
-          const categoryProducts = products.filter(p => p.categoryId === cat.id);
+          const categoryProducts = products.filter(
+            (p) => p.categoryId === cat.id && p.isPublished !== false
+          );
           return (
             <div
               key={cat.id}
@@ -34,6 +36,13 @@ export const CategoriesView: React.FC = () => {
                   <img
                     src={cat.imageUrl}
                     alt={cat.name}
+                    loading="lazy"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      if (!target.src.endsWith('/categories/category-fallback.svg')) {
+                        target.src = '/categories/category-fallback.svg';
+                      }
+                    }}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
@@ -43,8 +52,14 @@ export const CategoriesView: React.FC = () => {
                     </span>
                     <h3 className="font-bold text-base leading-tight">{cat.name}</h3>
                   </div>
-                  <span className="absolute top-3 right-3 bg-white/90 text-gray-900 text-[10px] font-bold px-2 py-0.5 rounded shadow-xs">
-                    {categoryProducts.length > 0 ? `${categoryProducts.length} Items Available` : `${cat.subcategories.length} Subcategories`}
+                  <span className="absolute top-3 right-3 bg-white/95 text-gray-900 text-[10px] font-bold px-2 py-0.5 rounded shadow-xs">
+                    {productsLoading ? (
+                      <span className="animate-pulse">Loading...</span>
+                    ) : categoryProducts.length > 0 ? (
+                      `${categoryProducts.length} ${categoryProducts.length === 1 ? 'Product' : 'Products'}`
+                    ) : (
+                      'Coming Soon'
+                    )}
                   </span>
                 </div>
 
