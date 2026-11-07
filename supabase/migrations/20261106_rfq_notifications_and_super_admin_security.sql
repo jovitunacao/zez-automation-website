@@ -389,11 +389,15 @@ BEGIN
     WHERE date_key = p_date
     FOR UPDATE;
 
+    v_today_reserved := COALESCE(v_today_reserved, 0);
+
     -- 4. Calculate accurate monthly total across all dates in this month
     SELECT COALESCE(SUM(sent_count), 0) INTO v_month_reserved
     FROM public.email_quota_tracking
     WHERE date_key >= v_first_day_of_month
       AND date_key < v_next_month_day;
+
+    v_month_reserved := COALESCE(v_month_reserved, 0);
 
     -- 5. Evaluate daily limit (100 emails/day)
     IF (v_today_reserved + p_count) > v_daily_limit THEN
@@ -506,14 +510,18 @@ BEGIN
     v_first_day_of_month := DATE_TRUNC('month', p_date)::DATE;
     v_next_month_day := (v_first_day_of_month + INTERVAL '1 month')::DATE;
 
-    SELECT COALESCE(sent_count, 0) INTO v_today_sent
-    FROM public.email_quota_tracking
-    WHERE date_key = p_date;
+    -- Scalar subquery with COALESCE guarantees integer 0 when no row exists for p_date
+    v_today_sent := COALESCE(
+        (SELECT sent_count FROM public.email_quota_tracking WHERE date_key = p_date),
+        0
+    );
 
-    SELECT COALESCE(SUM(sent_count), 0) INTO v_month_sent
-    FROM public.email_quota_tracking
-    WHERE date_key >= v_first_day_of_month
-      AND date_key < v_next_month_day;
+    -- SUM aggregate with COALESCE guarantees integer 0 when no rows exist for the month
+    v_month_sent := COALESCE(
+        (SELECT SUM(sent_count) FROM public.email_quota_tracking 
+         WHERE date_key >= v_first_day_of_month AND date_key < v_next_month_day),
+        0
+    );
 
     RETURN jsonb_build_object(
         'date_key', p_date,

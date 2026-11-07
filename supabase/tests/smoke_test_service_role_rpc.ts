@@ -64,26 +64,52 @@ async function runSmokeTests() {
   // SMOKE TEST 1: check_email_quota() RPC
   // ----------------------------------------------------------------------------
   try {
-    process.stdout.write("[Test 1/4] Invoking check_email_quota()... ");
-    const { data, error } = await supabaseAdmin.rpc("check_email_quota");
+    process.stdout.write("[Test 1/4] Invoking check_email_quota() [Current Date & Unrecorded Date]... ");
+    const { data: currentData, error: currentError } = await supabaseAdmin.rpc("check_email_quota");
 
-    if (error) {
-      throw new Error(`RPC error: ${error.message}`);
+    if (currentError) {
+      throw new Error(`RPC error on current date: ${currentError.message}`);
     }
 
     if (
-      typeof data?.daily_limit !== "number" ||
-      typeof data?.monthly_limit !== "number" ||
-      typeof data?.can_send !== "boolean"
+      typeof currentData?.today_sent !== "number" ||
+      typeof currentData?.month_sent !== "number" ||
+      typeof currentData?.daily_limit !== "number" ||
+      typeof currentData?.monthly_limit !== "number" ||
+      typeof currentData?.can_send !== "boolean" ||
+      currentData?.today_sent === null ||
+      currentData?.can_send === null
     ) {
-      throw new Error(`Invalid response structure: ${JSON.stringify(data)}`);
+      throw new Error(`Invalid response structure on current date: ${JSON.stringify(currentData)}`);
+    }
+
+    // Regression check: invoke with an unrecorded future date
+    const futureDate = "2029-01-01";
+    const { data: futureData, error: futureError } = await supabaseAdmin.rpc("check_email_quota", {
+      p_date: futureDate,
+    });
+
+    if (futureError) {
+      throw new Error(`RPC error on unrecorded date: ${futureError.message}`);
+    }
+
+    if (
+      futureData?.today_sent !== 0 ||
+      futureData?.month_sent !== 0 ||
+      futureData?.can_send !== true
+    ) {
+      throw new Error(
+        `Regression failure on unrecorded date: expected today_sent=0, month_sent=0, can_send=true, got: ${JSON.stringify(
+          futureData
+        )}`
+      );
     }
 
     console.log("PASSED");
     reports.push({
       name: "check_email_quota",
       status: "PASSED",
-      detail: `Daily limit: ${data.daily_limit}, Monthly limit: ${data.monthly_limit}, Can send: ${data.can_send}`,
+      detail: `Current (today: ${currentData.today_sent}, can_send: ${currentData.can_send}) & Unrecorded (today: 0, can_send: true)`,
     });
   } catch (err: any) {
     console.log("FAILED");

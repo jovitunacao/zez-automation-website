@@ -120,6 +120,19 @@ BEGIN
     RAISE NOTICE '  --> OK: check_email_quota verified (Daily: %/100, Monthly: %/3000).', 
         v_quota_result->>'today_sent', v_quota_result->>'month_sent';
 
+    -- 3.6 Regression Test: check_email_quota() on a date WITHOUT an existing quota record
+    -- Verifies that today_sent = 0, month_sent = 0, and can_send is a strict boolean (true, never null)
+    v_quota_result := public.check_email_quota((v_test_date + INTERVAL '100 days')::DATE);
+    ASSERT (v_quota_result->>'today_sent')::INTEGER = 0, 
+        format('REGRESSION FAILURE: expected today_sent=0 for unrecorded date, got %s', v_quota_result->>'today_sent');
+    ASSERT (v_quota_result->>'month_sent')::INTEGER = 0, 
+        format('REGRESSION FAILURE: expected month_sent=0 for unrecorded date, got %s', v_quota_result->>'month_sent');
+    ASSERT v_quota_result->>'can_send' IS NOT NULL AND (v_quota_result->>'can_send')::BOOLEAN = true, 
+        format('REGRESSION FAILURE: expected can_send=true (boolean) for unrecorded date, got %s', v_quota_result->>'can_send');
+    ASSERT (v_quota_result->>'reason') = 'OK', 
+        format('REGRESSION FAILURE: expected reason=OK, got %s', v_quota_result->>'reason');
+    RAISE NOTICE '  --> OK: Regression test passed: check_email_quota on unrecorded date returned today_sent=0, can_send=true, reason=OK.';
+
     -- --------------------------------------------------------------------------
     -- TEST 4: AUTOMATED RFQ TRIGGER QUEUEING, CLAIMING & CRASH RECOVERY
     -- --------------------------------------------------------------------------
