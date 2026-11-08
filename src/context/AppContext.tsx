@@ -39,7 +39,8 @@ export type ActiveView =
   | 'account' 
   | 'admin' 
   | 'about' 
-  | 'contact';
+  | 'contact'
+  | 'customer-quote';
 
 export interface AdminUserSession {
   id: string;
@@ -253,7 +254,15 @@ const LEGACY_MOCK_SAMPLE_IDS = new Set([
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // Navigation
-  const [activeView, setActiveView] = useState<ActiveView>('home');
+  const [activeView, setActiveView] = useState<ActiveView>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('quote_token')) {
+        return 'customer-quote';
+      }
+    }
+    return 'home';
+  });
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
 
   // Products & Cloud Database Persistence

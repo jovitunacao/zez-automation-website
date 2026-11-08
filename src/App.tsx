@@ -24,6 +24,7 @@ import { AdminDashboardView } from './views/AdminDashboardView';
 import { AboutUsView } from './views/AboutUsView';
 import { ContactUsView } from './views/ContactUsView';
 import { ServicesView } from './views/ServicesView';
+import { CustomerQuotationView } from './views/CustomerQuotationView';
 
 const MainContent: React.FC = () => {
   const { activeView, activeRfqForPrint, setActiveRfqForPrint } = useApp();
@@ -32,6 +33,10 @@ const MainContent: React.FC = () => {
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, [activeView]);
+
+  const urlParams = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+  const quoteToken = urlParams?.get('quote_token') || '';
+  const quoteId = urlParams?.get('quote_id') || undefined;
 
   return (
     <div className="min-h-screen flex flex-col bg-[#F8F9FA] text-[#292F36]">
@@ -51,6 +56,9 @@ const MainContent: React.FC = () => {
         {activeView === 'admin' && <AdminDashboardView />}
         {activeView === 'about' && <AboutUsView />}
         {activeView === 'contact' && <ContactUsView />}
+        {activeView === 'customer-quote' && (
+          <CustomerQuotationView token={quoteToken} quotationId={quoteId} />
+        )}
       </main>
 
       {/* Shared Corporate Footer */}

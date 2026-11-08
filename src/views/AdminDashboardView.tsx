@@ -45,7 +45,11 @@ import {
   Shield,
   Activity,
   CheckCircle,
-  Inbox
+  Inbox,
+  Calculator,
+  FilePlus,
+  Copy,
+  ExternalLink
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { 
@@ -57,7 +61,10 @@ import {
   AdministratorUser,
   AdminRole,
   RfqNotificationLog,
-  NotificationQuotaStats
+  NotificationQuotaStats,
+  Quotation,
+  QuotationStatus,
+  QuotationLineItem
 } from '../types';
 import { isSupabaseConfigured } from '../lib/supabase';
 import { 
@@ -79,6 +86,16 @@ import {
   dispatchPendingRfqNotifications,
   fetchNotificationQuotaStatsFromSupabase
 } from '../services/supabaseService';
+import { 
+  convertRfqToQuotation, 
+  createBlankQuotation, 
+  duplicateAsRevision, 
+  fetchAllQuotations, 
+  persistQuotation, 
+  dispatchQuotationEmail 
+} from '../services/quotationService';
+import { QuotationMakerModal } from '../components/quotation/QuotationMakerModal';
+import { QuotationPrintView } from '../components/quotation/QuotationPrintView';
 
 export const AdminDashboardView: React.FC = () => {
   const { 
@@ -122,9 +139,18 @@ export const AdminDashboardView: React.FC = () => {
   // Product management error & loading states
   const [prodModalError, setProdModalError] = useState<string | null>(null);
   const [prodModalLoading, setProdModalLoading] = useState(false);
-  const [tableActionError, setTableActionError] = useState<string | null>(null);
+  const [activeAdminTab, setActiveAdminTab] = useState<'overview' | 'rfqs' | 'quotations' | 'products' | 'categories' | 'admins' | 'notifications' | 'settings'>('overview');
 
-  const [activeAdminTab, setActiveAdminTab] = useState<'overview' | 'rfqs' | 'products' | 'categories' | 'admins' | 'notifications' | 'settings'>('overview');
+  // Official B2B Quotations state
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
+  const [quotationsLoading, setQuotationsLoading] = useState(false);
+  const [quotationsError, setQuotationsError] = useState<string | null>(null);
+  const [quotationSearch, setQuotationSearch] = useState('');
+  const [quotationStatusFilter, setQuotationStatusFilter] = useState<string>('all');
+  const [selectedQuotationForEdit, setSelectedQuotationForEdit] = useState<Quotation | null>(null);
+  const [isQuotationMakerOpen, setIsQuotationMakerOpen] = useState(false);
+  const [selectedQuotationForPrint, setSelectedQuotationForPrint] = useState<Quotation | null>(null);
+  const [copiedQuoteToken, setCopiedQuoteToken] = useState<string | null>(null);
 
   // RFQ filtering & search
   const [rfqSearch, setRfqSearch] = useState('');
@@ -138,6 +164,7 @@ export const AdminDashboardView: React.FC = () => {
   // Delete product confirmation modal
   const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [deleteConfirmLoading, setDeleteConfirmLoading] = useState(false);
+  const [tableActionError, setTableActionError] = useState<string | null>(null);
 
   // Product modal
   const [productModalOpen, setProductModalOpen] = useState(false);
@@ -853,11 +880,65 @@ export const AdminDashboardView: React.FC = () => {
     }
   };
 
+  // Official B2B Quotation Handlers
+  const loadQuotations = async () => {
+    setQuotationsLoading(true);
+    setQuotationsError(null);
+    const res = await fetchAllQuotations();
+    setQuotationsLoading(false);
+    if (res.data) {
+      setQuotations(res.data);
+    }
+    if (res.error && (!res.data || res.data.length === 0)) {
+      setQuotationsError(res.error);
+    }
+  };
+
+  const handleConvertRfqToQuote = (rfq: QuotationRequest) => {
+    const newQuote = convertRfqToQuotation(rfq, adminUser);
+    setSelectedQuotationForEdit(newQuote);
+    setIsQuotationMakerOpen(true);
+  };
+
+  const handleCreateNewQuote = () => {
+    const newQuote = createBlankQuotation(adminUser);
+    setSelectedQuotationForEdit(newQuote);
+    setIsQuotationMakerOpen(true);
+  };
+
+  const handleEditQuote = (quote: Quotation) => {
+    setSelectedQuotationForEdit(quote);
+    setIsQuotationMakerOpen(true);
+  };
+
+  const handleDuplicateQuote = (quote: Quotation) => {
+    const revision = duplicateAsRevision(quote, adminUser);
+    setSelectedQuotationForEdit(revision);
+    setIsQuotationMakerOpen(true);
+  };
+
+  const handleCopyCustomerLink = (quote: Quotation) => {
+    const origin = window.location.origin;
+    const url = `${origin}?quote_token=${quote.customerAccessToken}&quote_id=${quote.id}`;
+    navigator.clipboard.writeText(url);
+    setCopiedQuoteToken(quote.id);
+    setTimeout(() => setCopiedQuoteToken(null), 2500);
+  };
+
+  const handleQuotationSaved = (savedQuote: Quotation) => {
+    setQuotations(prev => [
+      savedQuote,
+      ...prev.filter(q => q.id !== savedQuote.id)
+    ]);
+  };
+
   // Tab switching data loaders
   useEffect(() => {
     if (isAdminAuthenticated) {
       if (activeAdminTab === 'rfqs') {
         refreshRfqs();
+      } else if (activeAdminTab === 'quotations') {
+        loadQuotations();
       } else if (activeAdminTab === 'admins' && isSuperAdmin) {
         loadAdmins();
       } else if (activeAdminTab === 'notifications') {
@@ -865,6 +946,13 @@ export const AdminDashboardView: React.FC = () => {
       }
     }
   }, [activeAdminTab, isAdminAuthenticated, isSuperAdmin]);
+
+  // Initial load of quotations when authenticated
+  useEffect(() => {
+    if (isAdminAuthenticated) {
+      loadQuotations();
+    }
+  }, [isAdminAuthenticated]);
 
   // If not authenticated, render the secure administrator login gate
   if (!isAdminAuthenticated) {
@@ -1034,6 +1122,20 @@ export const AdminDashboardView: React.FC = () => {
               {pendingRfqsCount > 0 && (
                 <span className="bg-amber-400 text-gray-950 px-1.5 py-0.2 rounded-full font-bold text-[10px]">
                   {pendingRfqsCount}
+                </span>
+              )}
+            </button>
+            <button
+              onClick={() => setActiveAdminTab('quotations')}
+              className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 ${
+                activeAdminTab === 'quotations' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
+              }`}
+            >
+              <Calculator className="w-3.5 h-3.5" />
+              <span>Official Quotes</span>
+              {quotations.length > 0 && (
+                <span className="bg-gray-700 text-white px-1.5 py-0.2 rounded-full font-mono text-[10px]">
+                  {quotations.length}
                 </span>
               )}
             </button>
@@ -1409,6 +1511,15 @@ export const AdminDashboardView: React.FC = () => {
                         <Printer className="w-3.5 h-3.5" />
                         <span>Print Slip</span>
                       </button>
+
+                      <button
+                        onClick={() => handleConvertRfqToQuote(rfq)}
+                        className="px-3 py-1 bg-[#292F36] hover:bg-black text-white font-bold rounded-lg flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors"
+                        title="Convert this incoming customer RFQ into an official B2B Quotation"
+                      >
+                        <Calculator className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Create Official Quote</span>
+                      </button>
                     </div>
                   </div>
 
@@ -1461,6 +1572,358 @@ export const AdminDashboardView: React.FC = () => {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 2. OFFICIAL B2B QUOTATION MAKER TAB */}
+      {activeAdminTab === 'quotations' && (
+        <div className="space-y-6 animate-fadeIn">
+          {/* Header & Main Actions */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <h2 className="text-base font-bold text-[#292F36] flex items-center gap-2">
+                <Calculator className="w-5 h-5 text-[#B5121B]" />
+                <span>B2B Official Quotations & Commercial Proposals</span>
+              </h2>
+              <p className="text-xs text-gray-500">
+                Generate atomic sequential quotation numbers (ZEZ-Q-YYYY-XXXXX), calculate Philippine VAT, email via Resend, and track client approvals.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={loadQuotations}
+                disabled={quotationsLoading}
+                className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Refresh Quotations"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${quotationsLoading ? 'animate-spin' : ''}`} />
+                <span>Refresh</span>
+              </button>
+              <button
+                onClick={handleCreateNewQuote}
+                className="px-4 py-2 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+              >
+                <FilePlus className="w-4 h-4" />
+                <span>New Blank Quotation</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Quick Metrics Bar */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-2xs">
+              <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Total Quotes</p>
+              <p className="text-xl font-black text-gray-900 mt-1">{quotations.length}</p>
+            </div>
+            <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-2xs">
+              <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Pipeline Value</p>
+              <p className="text-lg font-black text-[#B5121B] mt-1 font-mono truncate">
+                ₱{quotations.reduce((s, q) => s + (q.grandTotalPhp || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              </p>
+            </div>
+            <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-2xs">
+              <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Drafts</p>
+              <p className="text-xl font-black text-gray-700 mt-1">
+                {quotations.filter(q => q.status === 'Draft' || q.status === 'Pending Approval').length}
+              </p>
+            </div>
+            <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-2xs">
+              <p className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider">Sent to Clients</p>
+              <p className="text-xl font-black text-indigo-700 mt-1">
+                {quotations.filter(q => q.status === 'Sent' || q.status === 'Approved').length}
+              </p>
+            </div>
+            <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-2xs col-span-2 sm:col-span-1">
+              <p className="text-[11px] font-bold text-emerald-600 uppercase tracking-wider">Accepted / Won</p>
+              <p className="text-xl font-black text-emerald-700 mt-1">
+                {quotations.filter(q => q.status === 'Accepted').length}
+              </p>
+            </div>
+          </div>
+
+          {/* Search & Filter Toolbar */}
+          <div className="bg-white rounded-xl border border-gray-200 p-3 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+            <div className="flex items-center gap-2 flex-1">
+              <div className="relative flex-1 max-w-md">
+                <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
+                <input
+                  type="text"
+                  placeholder="Search by quote #, client company, contact, or email..."
+                  value={quotationSearch}
+                  onChange={(e) => setQuotationSearch(e.target.value)}
+                  className="w-full pl-8 pr-3 py-1.5 border border-gray-300 rounded-lg text-xs focus:outline-none focus:border-[#B5121B]"
+                />
+              </div>
+
+              <select
+                value={quotationStatusFilter}
+                onChange={(e) => setQuotationStatusFilter(e.target.value)}
+                className="py-1.5 px-2.5 border border-gray-300 rounded-lg text-xs bg-white text-gray-700 font-medium"
+              >
+                <option value="all">All Statuses ({quotations.length})</option>
+                <option value="Draft">Draft</option>
+                <option value="Pending Approval">Pending Approval</option>
+                <option value="Approved">Approved</option>
+                <option value="Sent">Sent</option>
+                <option value="Accepted">Accepted</option>
+                <option value="Declined">Declined</option>
+                <option value="Expired">Expired</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Error Banner */}
+          {quotationsError && (
+            <div className="p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-3 text-xs text-amber-900">
+              <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-bold">Database Notice</p>
+                <p className="mt-0.5">{quotationsError}</p>
+                <p className="mt-1 text-[11px] text-amber-700">
+                  Quotations remain fully functional and saved locally in your browser storage until the <code>20261108_b2b_quotation_system.sql</code> database migration is executed.
+                </p>
+              </div>
+              <button
+                onClick={loadQuotations}
+                className="px-2.5 py-1 bg-amber-200 hover:bg-amber-300 text-amber-950 font-bold rounded text-xs transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+
+          {/* Quotations List */}
+          {quotationsLoading ? (
+            <div className="py-16 text-center bg-white rounded-xl border border-gray-200 space-y-3">
+              <RefreshCw className="w-8 h-8 text-[#B5121B] animate-spin mx-auto" />
+              <p className="text-xs text-gray-500 font-medium">Loading official quotations database...</p>
+            </div>
+          ) : quotations.filter(q => {
+            if (quotationStatusFilter !== 'all' && q.status !== quotationStatusFilter) return false;
+            if (quotationSearch.trim()) {
+              const term = quotationSearch.toLowerCase();
+              const matchNum = q.id.toLowerCase().includes(term);
+              const matchClient = (q.customerCompanyName || '').toLowerCase().includes(term);
+              const matchAttn = (q.customerFullName || '').toLowerCase().includes(term);
+              const matchEmail = (q.customerEmail || '').toLowerCase().includes(term);
+              const matchRfq = (q.rfqId || '').toLowerCase().includes(term);
+              if (!matchNum && !matchClient && !matchAttn && !matchEmail && !matchRfq) return false;
+            }
+            return true;
+          }).length === 0 ? (
+            <div className="py-16 text-center bg-white rounded-xl border border-gray-200 p-8 space-y-4">
+              <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto text-gray-400">
+                <Calculator className="w-6 h-6" />
+              </div>
+              <div>
+                <h3 className="font-bold text-sm text-gray-900">No official quotations found</h3>
+                <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
+                  {quotationSearch || quotationStatusFilter !== 'all'
+                    ? 'No quotations match your current search or status filter.'
+                    : 'Start by converting an incoming RFQ from the RFQs tab, or click "+ New Blank Quotation" above.'}
+                </p>
+              </div>
+              <button
+                onClick={handleCreateNewQuote}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg shadow-sm transition-colors cursor-pointer"
+              >
+                <FilePlus className="w-4 h-4" />
+                <span>Create First Quotation</span>
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {quotations
+                .filter(q => {
+                  if (quotationStatusFilter !== 'all' && q.status !== quotationStatusFilter) return false;
+                  if (quotationSearch.trim()) {
+                    const term = quotationSearch.toLowerCase();
+                    const matchNum = q.id.toLowerCase().includes(term);
+                    const matchClient = (q.customerCompanyName || '').toLowerCase().includes(term);
+                    const matchAttn = (q.customerFullName || '').toLowerCase().includes(term);
+                    const matchEmail = (q.customerEmail || '').toLowerCase().includes(term);
+                    const matchRfq = (q.rfqId || '').toLowerCase().includes(term);
+                    if (!matchNum && !matchClient && !matchAttn && !matchEmail && !matchRfq) return false;
+                  }
+                  return true;
+                })
+                .map((quote) => {
+                  const isExpired = new Date(quote.validUntil) < new Date() && quote.status !== 'Accepted';
+                  const statusColors: Record<QuotationStatus, string> = {
+                    'Draft': 'bg-gray-100 text-gray-700 border-gray-300',
+                    'Pending Approval': 'bg-amber-100 text-amber-800 border-amber-300',
+                    'Approved': 'bg-blue-100 text-blue-800 border-blue-300',
+                    'Sent': 'bg-indigo-100 text-indigo-800 border-indigo-300',
+                    'Accepted': 'bg-emerald-100 text-emerald-800 border-emerald-300',
+                    'Declined': 'bg-rose-100 text-rose-800 border-rose-300',
+                    'Expired': 'bg-gray-200 text-gray-600 border-gray-400',
+                    'Cancelled': 'bg-gray-100 text-gray-400 border-gray-200'
+                  };
+
+                  return (
+                    <div
+                      key={quote.id}
+                      className="bg-white rounded-xl border border-gray-200 p-4 shadow-2xs hover:shadow-sm transition-all duration-150 space-y-3"
+                    >
+                      {/* Top Row: Quotation ID, Status, Actions */}
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <span className="font-mono font-black text-sm text-[#292F36]">
+                            {quote.id}
+                          </span>
+                          <span className="bg-gray-100 text-gray-700 text-[10px] font-bold px-2 py-0.5 rounded-full border border-gray-200">
+                            Rev {quote.revisionNumber}
+                          </span>
+                          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${statusColors[quote.status]}`}>
+                            {quote.status}
+                          </span>
+                          {quote.rfqId && (
+                            <span className="text-[10px] text-gray-500 font-mono bg-gray-50 px-2 py-0.5 rounded border border-gray-200">
+                              RFQ: {quote.rfqId}
+                            </span>
+                          )}
+                          {isExpired && (
+                            <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-2 py-0.5 rounded border border-rose-200">
+                              Validity Expired
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex items-center gap-1.5 flex-wrap text-xs">
+                          <button
+                            onClick={() => handleCopyCustomerLink(quote)}
+                            className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Copy customer portal acceptance link"
+                          >
+                            {copiedQuoteToken === quote.id ? (
+                              <>
+                                <Check className="w-3.5 h-3.5 text-emerald-600" />
+                                <span className="text-emerald-700">Link Copied!</span>
+                              </>
+                            ) : (
+                              <>
+                                <Copy className="w-3.5 h-3.5" />
+                                <span>Copy Link</span>
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            onClick={() => setSelectedQuotationForPrint(quote)}
+                            className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Generate and print official corporate PDF quotation"
+                          >
+                            <Printer className="w-3.5 h-3.5 text-gray-600" />
+                            <span>Print / PDF</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleDuplicateQuote(quote)}
+                            className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
+                            title="Clone as new revision (Rev +1)"
+                          >
+                            <FilePlus className="w-3.5 h-3.5 text-gray-600" />
+                            <span>New Rev</span>
+                          </button>
+
+                          <button
+                            onClick={() => handleEditQuote(quote)}
+                            className="px-3 py-1 bg-[#B5121B] hover:bg-[#8F1018] text-white font-bold rounded-lg flex items-center gap-1 shadow-2xs transition-colors cursor-pointer"
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                            <span>Edit / Review</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Content Grid */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                        {/* Client Info */}
+                        <div className="space-y-1 text-gray-600 bg-gray-50/50 p-3 rounded-lg border border-gray-100">
+                          <span className="font-bold text-gray-900 block mb-1">Customer / Client:</span>
+                          <p className="font-bold text-gray-800">{quote.customerCompanyName || 'Direct Client'}</p>
+                          <p>Attn: <strong>{quote.customerFullName || 'Purchasing Department'}</strong></p>
+                          <p>Email: <a href={`mailto:${quote.customerEmail}`} className="text-[#B5121B] underline">{quote.customerEmail}</a></p>
+                          {quote.customerMobileNumber && <p>Phone: <strong>{quote.customerMobileNumber}</strong></p>}
+                          {quote.deliveryAddress && <p className="truncate">Destination: <strong>{quote.deliveryAddress}</strong></p>}
+                        </div>
+
+                        {/* Commercial Terms & Items Summary */}
+                        <div className="space-y-1 text-gray-600 bg-gray-50/50 p-3 rounded-lg border border-gray-100">
+                          <span className="font-bold text-gray-900 block mb-1">
+                            Line Items & Terms ({quote.items.length}):
+                          </span>
+                          <ul className="space-y-1 mb-2">
+                            {quote.items.slice(0, 3).map((item, idx) => (
+                              <li key={idx} className="flex justify-between text-[11px]">
+                                <span className="truncate pr-1">
+                                  {item.quantity}x {item.productName}
+                                </span>
+                                <span className="font-mono font-bold text-gray-800 shrink-0">
+                                  ₱{item.lineTotalPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </span>
+                              </li>
+                            ))}
+                            {quote.items.length > 3 && (
+                              <li className="text-[10px] text-gray-400 italic">
+                                + {quote.items.length - 3} more items...
+                              </li>
+                            )}
+                          </ul>
+                          <div className="pt-1.5 border-t border-gray-200/80 text-[11px] space-y-0.5">
+                            <p>VAT Model: <strong className="uppercase">{quote.vatType.replace(/_/g, ' ')}</strong></p>
+                            <p>Payment: <strong>{quote.paymentTerms}</strong></p>
+                            <p>Valid until: <strong>{new Date(quote.validUntil).toLocaleDateString()}</strong></p>
+                          </div>
+                        </div>
+
+                        {/* Totals & Approval State */}
+                        <div className="space-y-2 bg-gray-50/50 p-3 rounded-lg border border-gray-100 flex flex-col justify-between">
+                          <div>
+                            <span className="font-bold text-gray-900 block mb-1">Financial Breakdown:</span>
+                            <div className="space-y-1 text-[11px] text-gray-600">
+                              <div className="flex justify-between">
+                                <span>Subtotal:</span>
+                                <span className="font-mono">₱{quote.subtotalPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              </div>
+                              {quote.discountAmountPhp > 0 && (
+                                <div className="flex justify-between text-emerald-700">
+                                  <span>Discount:</span>
+                                  <span className="font-mono">-₱{quote.discountAmountPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between">
+                                <span>VAT (12%):</span>
+                                <span className="font-mono">₱{quote.vatAmountPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Client acceptance note if present */}
+                          {quote.clientPoNumber && (
+                            <div className="p-2 bg-emerald-50 rounded border border-emerald-200 text-[11px] text-emerald-900">
+                              <span className="font-bold block">Conformed PO #: {quote.clientPoNumber}</span>
+                              {quote.customerResponseNotes && (
+                                <span className="text-[10px] italic">{quote.customerResponseNotes}</span>
+                              )}
+                            </div>
+                          )}
+
+                          <div className="flex items-center justify-between text-xs pt-2 border-t border-gray-200">
+                            <span className="text-gray-500 font-bold">Grand Total (PHP):</span>
+                            <span className="font-mono font-black text-base text-[#B5121B]">
+                              ₱{quote.grandTotalPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
             </div>
           )}
         </div>
@@ -3250,6 +3713,25 @@ export const AdminDashboardView: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* B2B QUOTATION MAKER MODAL */}
+      {isQuotationMakerOpen && selectedQuotationForEdit && (
+        <QuotationMakerModal
+          initialQuotation={selectedQuotationForEdit}
+          isOpen={isQuotationMakerOpen}
+          onClose={() => setIsQuotationMakerOpen(false)}
+          onSaved={handleQuotationSaved}
+          onPreviewPrint={(quote) => setSelectedQuotationForPrint(quote)}
+        />
+      )}
+
+      {/* OFFICIAL CORPORATE QUOTATION PRINT/PDF VIEW */}
+      {selectedQuotationForPrint && (
+        <QuotationPrintView
+          quotation={selectedQuotationForPrint}
+          onClose={() => setSelectedQuotationForPrint(null)}
+        />
       )}
     </div>
   );

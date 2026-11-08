@@ -205,3 +205,101 @@ export interface NotificationQuotaStats {
   lastRefreshedAt: string;
 }
 
+// B2B Quotation System Types
+export type QuotationStatus = 
+  | 'Draft' 
+  | 'Pending Approval' 
+  | 'Approved' 
+  | 'Sent' 
+  | 'Accepted' 
+  | 'Declined' 
+  | 'Expired' 
+  | 'Cancelled';
+
+export type VatType = 
+  | 'vat_inclusive_12' 
+  | 'vat_exclusive_12' 
+  | 'vat_exempt' 
+  | 'zero_rated';
+
+export type DiscountType = 'percentage' | 'fixed';
+
+export interface QuotationLineItem {
+  id: string;
+  quotationId?: string;
+  productId?: string;
+  sku?: string;
+  productName: string;
+  model?: string;
+  brand?: string;
+  quantity: number;
+  unitPricePhp: number;
+  discountPercent?: number;
+  lineTotalPhp: number;
+  leadTime?: string;
+  warranty?: string;
+  notes?: string;
+  sortOrder: number;
+}
+
+export interface QuotationAuditLog {
+  id: string;
+  quotationId: string;
+  actorId?: string;
+  actorName: string;
+  action: string;
+  details?: Record<string, any>;
+  createdAt: string;
+}
+
+export interface Quotation {
+  id: string; // e.g. ZEZ-Q-2026-00001
+  rfqId?: string;
+  revisionNumber: number;
+  status: QuotationStatus;
+  customerFullName: string;
+  customerCompanyName?: string;
+  customerEmail: string;
+  customerMobileNumber?: string;
+  deliveryCityProvince?: string;
+  deliveryAddress?: string;
+  tinNumber?: string;
+  paymentTerms: string;
+  warrantyTerms: string;
+  validityDays: number;
+  validUntil: string;
+  currency: string;
+  leadTimeDescription?: string;
+  specialInstructions?: string;
+  adminNotes?: string;
+  assignedSpecialist?: string;
+  subtotalPhp: number;
+  discountType: DiscountType;
+  discountValue: number;
+  discountAmountPhp: number;
+  vatType: VatType;
+  vatRate: number;
+  vatAmountPhp: number;
+  netOfVatPhp: number;
+  deliveryFeePhp: number;
+  installationFeePhp: number;
+  otherFeesPhp: number;
+  grandTotalPhp: number;
+  customerAccessToken: string;
+  tokenExpiresAt: string;
+  createdBy?: string;
+  approvedBy?: string;
+  approvedAt?: string;
+  sentAt?: string;
+  sentToEmail?: string;
+  customerResponse?: 'Accepted' | 'Declined' | 'Revision Requested';
+  customerResponseAt?: string;
+  customerResponseNotes?: string;
+  clientPoNumber?: string;
+  items: QuotationLineItem[];
+  auditLogs?: QuotationAuditLog[];
+  createdAt: string;
+  updatedAt: string;
+  isDemo?: boolean;
+}
+
