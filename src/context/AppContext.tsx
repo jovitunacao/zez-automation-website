@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { 
   Product, 
   ProductCategory, 
@@ -89,6 +89,9 @@ interface AppContextType {
 
   // RFQ Submission & Management
   rfqRequests: QuotationRequest[];
+  rfqsLoading: boolean;
+  rfqsError: string | null;
+  refreshRfqs: () => Promise<void>;
   submitRfq: (customer: RfqCustomerInfo) => Promise<{ success: boolean; rfq?: QuotationRequest; error?: string }>;
   updateRfqStatus: (rfqId: string, status: QuotationRequest['status'], adminNotes?: string) => Promise<void>;
   activeRfqForPrint: QuotationRequest | null;
@@ -317,6 +320,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [activeRfqForPrint, setActiveRfqForPrint] = useState<QuotationRequest | null>(null);
+  const [rfqsLoading, setRfqsLoading] = useState<boolean>(false);
+  const [rfqsError, setRfqsError] = useState<string | null>(null);
+  const isFetchingRfqsRef = useRef<boolean>(false);
+  const fetchRfqsSequenceRef = useRef<number>(0);
 
   // Compare List
   const [compareList, setCompareList] = useState<Product[]>([]);
@@ -422,6 +429,52 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     refreshProducts();
   }, []);
 
+  // Load live quotation requests from Supabase with duplicate-request prevention
+  const refreshRfqs = async () => {
+    if (!isSupabaseConfigured()) {
+      setRfqsLoading(false);
+      setRfqsError(null);
+      return;
+    }
+
+    if (!isAdminAuthenticated) {
+      return;
+    }
+
+    if (isFetchingRfqsRef.current) {
+      return;
+    }
+
+    isFetchingRfqsRef.current = true;
+    const currentSeq = ++fetchRfqsSequenceRef.current;
+    setRfqsLoading(true);
+    setRfqsError(null);
+
+    try {
+      const result = await fetchAdminRfqsFromSupabase();
+      if (currentSeq !== fetchRfqsSequenceRef.current) {
+        return;
+      }
+
+      if (result.error) {
+        setRfqsError(result.error);
+        console.warn('[ZEZ App] Supabase RFQs query error:', result.error);
+      } else if (result.data !== null) {
+        setRfqRequests(result.data);
+        setRfqsError(null);
+      }
+    } catch (err: any) {
+      if (currentSeq === fetchRfqsSequenceRef.current) {
+        setRfqsError(err?.message || 'Failed to fetch quotation requests from database.');
+      }
+    } finally {
+      if (currentSeq === fetchRfqsSequenceRef.current) {
+        setRfqsLoading(false);
+        isFetchingRfqsRef.current = false;
+      }
+    }
+  };
+
   // Check active admin session on load & attach auth listener
   useEffect(() => {
     const initAdminAuth = async () => {
@@ -458,6 +511,46 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, []);
 
+  // Auto-fetch live RFQs whenever an administrator is authenticated (restoration or initial login)
+  useEffect(() => {
+    if (isAdminAuthenticated) {
+      refreshRfqs();
+    } else {
+      if (isSupabaseConfigured()) {
+        setRfqRequests([]);
+        try { localStorage.removeItem('zez_rfqs'); } catch (_) {}
+      }
+      setRfqsError(null);
+    }
+  }, [isAdminAuthenticated]);
+
+  // Supabase Realtime synchronization for new and updated RFQs
+  useEffect(() => {
+    if (!isSupabaseConfigured() || !supabase || !isAdminAuthenticated) {
+      return;
+    }
+
+    const client = supabase;
+    const channel = client
+      .channel('admin-rfq-changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'quotation_requests'
+        },
+        () => {
+          refreshRfqs();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      client.removeChannel(channel);
+    };
+  }, [isAdminAuthenticated]);
+
   // Save to LocalStorage for offline resilience
   useEffect(() => {
     try {
@@ -483,11 +576,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     try {
-      localStorage.setItem('zez_rfqs', JSON.stringify(rfqRequests));
+      if (isSupabaseConfigured()) {
+        if (isAdminAuthenticated && rfqRequests.length > 0) {
+          localStorage.setItem('zez_rfqs', JSON.stringify(rfqRequests));
+        } else {
+          localStorage.removeItem('zez_rfqs');
+        }
+      } else {
+        localStorage.setItem('zez_rfqs', JSON.stringify(rfqRequests));
+      }
     } catch (e) {
       console.error(e);
     }
-  }, [rfqRequests]);
+  }, [rfqRequests, isAdminAuthenticated]);
 
   useEffect(() => {
     try {
@@ -776,9 +877,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setIsAdminAuthenticated(true);
 
       // Load live RFQs from Supabase
-      const dbRfqs = await fetchAdminRfqsFromSupabase();
-      if (dbRfqs !== null) {
-        setRfqRequests(dbRfqs);
+      const rfqRes = await fetchAdminRfqsFromSupabase();
+      if (rfqRes.error) {
+        setRfqsError(rfqRes.error);
+      } else if (rfqRes.data !== null) {
+        setRfqRequests(rfqRes.data);
+        setRfqsError(null);
       }
       return { success: true };
     }
@@ -789,6 +893,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await signOutAdministrator();
     setAdminUser(null);
     setIsAdminAuthenticated(false);
+    if (isSupabaseConfigured()) {
+      setRfqRequests([]);
+      try { localStorage.removeItem('zez_rfqs'); } catch (_) {}
+    }
+    setRfqsError(null);
   };
 
   // Compare
@@ -863,6 +972,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isQuoteDrawerOpen,
         setIsQuoteDrawerOpen,
         rfqRequests,
+        rfqsLoading,
+        rfqsError,
+        refreshRfqs,
         submitRfq,
         updateRfqStatus,
         activeRfqForPrint,

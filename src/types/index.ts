@@ -43,6 +43,8 @@ export interface ProductSpecification {
 
 export type ProductImageStatus = 'supplier-provided' | 'manufacturer-matched' | 'illustrative' | 'pending';
 
+export type PriceDisplayMode = 'hidden' | 'public' | 'starting';
+
 export interface Product {
   id: string;
   sku: string;
@@ -54,6 +56,7 @@ export interface Product {
   shortDescription: string;
   fullDescription: string;
   pricePhp?: number; // Optional reference price
+  priceDisplayMode?: PriceDisplayMode; // 'hidden' (default Price on Request), 'public', 'starting'
   isPriceNegotiable?: boolean;
   stockStatus: StockStatus;
   leadTimeDays?: number;

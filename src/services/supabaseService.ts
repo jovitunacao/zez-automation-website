@@ -45,6 +45,7 @@ function mapRowToProduct(row: any): Product {
     shortDescription: row.short_description || '',
     fullDescription: row.full_description || '',
     pricePhp: row.price_php !== null ? Number(row.price_php) : undefined,
+    priceDisplayMode: row.price_display_mode || 'hidden',
     isPriceNegotiable: Boolean(row.is_price_negotiable),
     stockStatus: row.stock_status,
     leadTimeDays: row.lead_time_days ? Number(row.lead_time_days) : 1,
@@ -79,6 +80,7 @@ function mapProductToRow(prod: Product): any {
     short_description: prod.shortDescription,
     full_description: prod.fullDescription,
     price_php: prod.pricePhp ?? null,
+    price_display_mode: prod.priceDisplayMode || 'hidden',
     is_price_negotiable: prod.isPriceNegotiable ?? true,
     stock_status: prod.stockStatus,
     lead_time_days: prod.leadTimeDays ?? 1,
@@ -346,12 +348,17 @@ export async function syncRfqToSupabase(rfq: QuotationRequest): Promise<{
   }
 }
 
+export interface FetchAdminRfqsResult {
+  data: QuotationRequest[] | null;
+  error: string | null;
+}
+
 /**
  * Fetches all quotation requests and line items for the Admin Dashboard.
  */
-export async function fetchAdminRfqsFromSupabase(): Promise<QuotationRequest[] | null> {
+export async function fetchAdminRfqsFromSupabase(): Promise<FetchAdminRfqsResult> {
   if (!isSupabaseConfigured() || !supabase) {
-    return null;
+    return { data: null, error: null };
   }
 
   try {
@@ -362,10 +369,10 @@ export async function fetchAdminRfqsFromSupabase(): Promise<QuotationRequest[] |
 
     if (rfqsError) {
       console.warn('[ZEZ Supabase] Error fetching admin RFQs:', rfqsError.message);
-      return null;
+      return { data: null, error: rfqsError.message };
     }
 
-    if (!rfqsData) return null;
+    if (!rfqsData) return { data: [], error: null };
 
     const mapped: QuotationRequest[] = rfqsData.map(row => ({
       id: row.id,
@@ -403,10 +410,10 @@ export async function fetchAdminRfqsFromSupabase(): Promise<QuotationRequest[] |
       isDemo: Boolean(row.is_demo)
     }));
 
-    return mapped;
+    return { data: mapped, error: null };
   } catch (err: any) {
     console.warn('[ZEZ Supabase] Unexpected error fetching RFQs:', err);
-    return null;
+    return { data: null, error: err?.message || 'Unexpected failure fetching quotation requests from database.' };
   }
 }
 

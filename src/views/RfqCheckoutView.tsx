@@ -14,12 +14,11 @@ import {
   Sparkles,
   Phone,
   Mail,
-  HelpCircle,
   AlertCircle
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { CustomerType, ContactMethod, RfqCustomerInfo, QuotationRequest } from '../types';
-import { getDisplayBrand, getProductSalesUnit, handleProductImageError } from '../utils/productUtils';
+import { RfqCustomerInfo, QuotationRequest, CustomerType, ContactMethod } from '../types';
+import { getDisplayBrand, getProductSalesUnit, handleProductImageError, getProductPriceDisplay } from '../utils/productUtils';
 
 export const RfqCheckoutView: React.FC = () => {
   const { 
@@ -463,18 +462,31 @@ export const RfqCheckoutView: React.FC = () => {
                     </div>
 
                     <div className="text-right">
-                      {item.product.pricePhp ? (
-                        <div>
-                          <span className="font-bold text-gray-900 block">
-                            ₱{(item.product.pricePhp * item.quantity).toLocaleString()}
-                          </span>
-                          <span className="text-[10px] text-gray-400">
-                            ₱{item.product.pricePhp.toLocaleString()}{getProductSalesUnit(item.product) ? ` / ${getProductSalesUnit(item.product)}` : ''}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-gray-500">Project Pricing</span>
-                      )}
+                      {(() => {
+                        const priceInfo = getProductPriceDisplay(item.product);
+                        if (priceInfo.isPriceOnRequest || !priceInfo.numericPrice) {
+                          return (
+                            <div>
+                              <span className="font-bold text-[#B5121B] text-xs block">
+                                Price on Request
+                              </span>
+                              <span className="text-[10px] text-gray-400">
+                                B2B Volume Quote
+                              </span>
+                            </div>
+                          );
+                        }
+                        return (
+                          <div>
+                            <span className="font-bold text-gray-900 block font-mono">
+                              ₱{(priceInfo.numericPrice * item.quantity).toLocaleString()}
+                            </span>
+                            <span className="text-[10px] text-gray-400 font-mono">
+                              ₱{priceInfo.numericPrice.toLocaleString()}{getProductSalesUnit(item.product) ? ` / ${getProductSalesUnit(item.product)}` : ''}
+                            </span>
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -484,18 +496,36 @@ export const RfqCheckoutView: React.FC = () => {
 
           {/* Pricing Summary */}
           <div className="space-y-2 pt-2 border-t border-gray-200 text-xs">
-            <div className="flex justify-between text-gray-500">
-              <span>Estimated Sample Subtotal:</span>
-              <span className="font-mono">₱{totalEstimated.toLocaleString()} PHP</span>
-            </div>
-            <div className="flex justify-between text-gray-500">
-              <span>Payment Requirement:</span>
-              <span className="font-semibold text-emerald-700">₱0.00 (No Payment Required Now)</span>
-            </div>
-            <div className="pt-2 border-t border-gray-200 flex justify-between text-sm font-extrabold text-[#292F36]">
-              <span>Estimated Total Value:</span>
-              <span className="text-base text-[#B5121B]">₱{totalEstimated.toLocaleString()}</span>
-            </div>
+            {quoteCart.every(item => getProductPriceDisplay(item.product).isPriceOnRequest) ? (
+              <div className="p-3 bg-gray-50 rounded-lg border border-gray-200 space-y-1">
+                <div className="flex justify-between items-center text-gray-700 font-semibold">
+                  <span>Pricing Structure:</span>
+                  <span className="text-[#B5121B] font-bold">Price on Request (B2B)</span>
+                </div>
+                <p className="text-[11px] text-gray-500">
+                  Custom project bill-of-materials pricing, volume discounts, and payment terms will be computed by our sales engineering team in your official quotation slip.
+                </p>
+                <div className="pt-2 flex justify-between text-gray-500 text-[11px]">
+                  <span>Immediate Payment:</span>
+                  <span className="font-semibold text-emerald-700">₱0.00 (No Payment Required Now)</span>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div className="flex justify-between text-gray-500">
+                  <span>Estimated Sample Subtotal:</span>
+                  <span className="font-mono">₱{totalEstimated.toLocaleString()} PHP</span>
+                </div>
+                <div className="flex justify-between text-gray-500">
+                  <span>Payment Requirement:</span>
+                  <span className="font-semibold text-emerald-700">₱0.00 (No Payment Required Now)</span>
+                </div>
+                <div className="pt-2 border-t border-gray-200 flex justify-between text-sm font-extrabold text-[#292F36]">
+                  <span>Estimated Indicative Total:</span>
+                  <span className="text-base text-[#B5121B] font-mono">₱{totalEstimated.toLocaleString()}</span>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Submission Error Banner */}

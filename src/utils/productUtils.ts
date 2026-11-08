@@ -1,4 +1,52 @@
-import { Product } from '../types';
+import { Product, PriceDisplayMode } from '../types';
+
+export interface ProductPriceDisplay {
+  mode: PriceDisplayMode;
+  isPriceOnRequest: boolean;
+  displayPrice: string;
+  numericPrice?: number;
+  subtext: string;
+}
+
+/**
+ * Returns formatted B2B pricing display based on product.priceDisplayMode:
+ * - 'hidden' (default): "Price on Request"
+ * - 'public': "₱XX,XXX" (Public Selling Price)
+ * - 'starting': "From ₱XX,XXX" (Starting Price)
+ */
+export function getProductPriceDisplay(product: Product): ProductPriceDisplay {
+  const mode: PriceDisplayMode = product.priceDisplayMode || 'hidden';
+  const price = product.pricePhp;
+
+  if (mode === 'public' && typeof price === 'number' && price > 0) {
+    return {
+      mode: 'public',
+      isPriceOnRequest: false,
+      displayPrice: `₱${price.toLocaleString()}`,
+      numericPrice: price,
+      subtext: product.isPriceNegotiable ? 'Indicative SRP · Volume tier discounts' : 'Official SRP'
+    };
+  }
+
+  if (mode === 'starting' && typeof price === 'number' && price > 0) {
+    return {
+      mode: 'starting',
+      isPriceOnRequest: false,
+      displayPrice: `From ₱${price.toLocaleString()}`,
+      numericPrice: price,
+      subtext: 'Starting tier · Final pricing based on project scope'
+    };
+  }
+
+  // Default: 'hidden' / Price on Request
+  return {
+    mode: 'hidden',
+    isPriceOnRequest: true,
+    displayPrice: 'Price on Request',
+    numericPrice: undefined,
+    subtext: 'Direct corporate B2B procurement & project tier quotation'
+  };
+}
 
 export function getDisplayBrand(brand?: string): string {
   if (!brand || brand.toLowerCase() === 'manufacturer to verify' || brand.toLowerCase() === 'unspecified') {

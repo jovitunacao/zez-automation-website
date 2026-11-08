@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Product } from '../types';
-import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata, handleProductImageError } from '../utils/productUtils';
+import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata, handleProductImageError, getProductPriceDisplay } from '../utils/productUtils';
 
 export const ProductDetailView: React.FC = () => {
   const { 
@@ -197,7 +197,7 @@ export const ProductDetailView: React.FC = () => {
             </div>
             <div className="p-3 bg-white rounded-lg border border-gray-200 flex items-center gap-2">
               <Truck className="w-4 h-4 text-[#B5121B] shrink-0" />
-              <span>Fast Metro Manila Dispatch</span>
+              <span>National & Regional Delivery</span>
             </div>
             <div className="p-3 bg-white rounded-lg border border-gray-200 flex items-center gap-2">
               <FileCheck className="w-4 h-4 text-[#B5121B] shrink-0" />
@@ -228,27 +228,38 @@ export const ProductDetailView: React.FC = () => {
           </div>
 
           {/* Price & Lead Time */}
-          <div className="p-4 bg-gray-50 rounded-xl border border-gray-100 space-y-2">
-            <div className="flex items-baseline justify-between">
-              <div>
-                <span className="text-xs text-gray-500 block">Suggested Retail Price (SRP):</span>
-                <span className="text-2xl sm:text-3xl font-black text-[#292F36]">
-                  {product.pricePhp ? `₱${product.pricePhp.toLocaleString()}` : 'For Project Pricing'}
-                </span>
-                {salesUnit && <span className="text-sm font-semibold text-gray-600 ml-1">/ {salesUnit}</span>}
-                <span className="text-xs text-gray-400 ml-2">PHP (Net of VAT)</span>
-              </div>
-              <div className="text-right">
-                <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
-                  {product.stockStatus}
-                </span>
-              </div>
-            </div>
+          {(() => {
+            const priceInfo = getProductPriceDisplay(product);
+            return (
+              <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-2">
+                <div className="flex items-baseline justify-between">
+                  <div>
+                    <span className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider block">
+                      {priceInfo.isPriceOnRequest ? 'B2B Procurement Status:' : 'Indicative Pricing (SRP):'}
+                    </span>
+                    <span className={`text-2xl sm:text-3xl font-black ${priceInfo.isPriceOnRequest ? 'text-[#B5121B]' : 'text-[#292F36] font-mono'}`}>
+                      {priceInfo.displayPrice}
+                    </span>
+                    {!priceInfo.isPriceOnRequest && salesUnit && (
+                      <span className="text-sm font-semibold text-gray-600 ml-1">/ {salesUnit}</span>
+                    )}
+                    <span className="text-xs text-gray-400 ml-2">
+                      {priceInfo.isPriceOnRequest ? 'Project Quotation Required' : 'PHP (Net of VAT)'}
+                    </span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded border border-emerald-200">
+                      {product.stockStatus}
+                    </span>
+                  </div>
+                </div>
 
-            <p className="text-[11px] text-gray-500 italic">
-              * Official volume project discounts, lead-times, and payment terms will be provided in your Pro-Forma Quotation.
-            </p>
-          </div>
+                <p className="text-[11px] text-gray-500 italic">
+                  * Official corporate tier pricing, bill-of-materials volume discounts, and fulfillment schedule will be detailed in your formal Pro-Forma Quotation.
+                </p>
+              </div>
+            );
+          })()}
 
           {/* Key Bullet Highlights */}
           <div className="space-y-1.5 text-xs text-gray-700">

@@ -199,19 +199,25 @@ export const QuotationSlipModal: React.FC<QuotationSlipModalProps> = ({ rfq, onC
               <div className="flex justify-between text-gray-600">
                 <span>Subtotal (Net of VAT):</span>
                 <span className="font-mono font-semibold">
-                  ₱{rfq.totalEstimatedPhp ? Math.round(rfq.totalEstimatedPhp / 1.12).toLocaleString() : '0'}
+                  {rfq.totalEstimatedPhp && rfq.totalEstimatedPhp > 0 
+                    ? `₱${Math.round(rfq.totalEstimatedPhp / 1.12).toLocaleString()}` 
+                    : 'To be determined (B2B)'}
                 </span>
               </div>
               <div className="flex justify-between text-gray-600">
                 <span>Value Added Tax (12% EVAT):</span>
                 <span className="font-mono font-semibold">
-                  ₱{rfq.totalEstimatedPhp ? Math.round(rfq.totalEstimatedPhp - (rfq.totalEstimatedPhp / 1.12)).toLocaleString() : '0'}
+                  {rfq.totalEstimatedPhp && rfq.totalEstimatedPhp > 0 
+                    ? `₱${Math.round(rfq.totalEstimatedPhp - (rfq.totalEstimatedPhp / 1.12)).toLocaleString()}` 
+                    : 'Included in formal quote'}
                 </span>
               </div>
               <div className="pt-2 border-t border-gray-300 flex justify-between text-sm font-extrabold text-[#B5121B]">
                 <span>Total Estimated (PHP):</span>
                 <span className="font-mono text-base">
-                  ₱{rfq.totalEstimatedPhp ? rfq.totalEstimatedPhp.toLocaleString() : '0'}
+                  {rfq.totalEstimatedPhp && rfq.totalEstimatedPhp > 0 
+                    ? `₱${rfq.totalEstimatedPhp.toLocaleString()}` 
+                    : 'Price on Request'}
                 </span>
               </div>
             </div>
@@ -224,7 +230,7 @@ export const QuotationSlipModal: React.FC<QuotationSlipModalProps> = ({ rfq, onC
               <li><strong>Price Validity:</strong> Prices and stock availability indicated are valid for 30 calendar days from issue date.</li>
               <li><strong>Payment Terms:</strong> 30 Days Net upon corporate credit line approval, or Bank Transfer prior to dispatch for new accounts.</li>
               <li><strong>Warranty:</strong> All products are covered by manufacturer warranty against defects. Serial numbers are tracked upon shipment.</li>
-              <li><strong>Deliveries:</strong> Standard Metro Manila delivery is 1-3 business days for in-stock items. Provincial freight terms to be coordinated.</li>
+              <li><strong>Deliveries:</strong> Standard delivery is 1-3 business days from regional hubs (Davao City & Zamboanga City) or national distribution partners.</li>
             </ol>
 
             <div className="grid grid-cols-2 gap-8 pt-8 mt-6">

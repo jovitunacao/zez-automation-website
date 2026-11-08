@@ -11,7 +11,7 @@ import {
   Building2
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { getDisplayBrand, getProductSalesUnit, handleProductImageError } from '../../utils/productUtils';
+import { getDisplayBrand, getProductSalesUnit, handleProductImageError, getProductPriceDisplay } from '../../utils/productUtils';
 
 export const QuotationDrawer: React.FC = () => {
   const { 
@@ -26,10 +26,18 @@ export const QuotationDrawer: React.FC = () => {
 
   if (!isQuoteDrawerOpen) return null;
 
-  const totalEstimated = quoteCart.reduce(
-    (sum, item) => sum + (item.product.pricePhp ? item.product.pricePhp * item.quantity : 0),
-    0
-  );
+  const hasCalculatedPrices = quoteCart.some(item => {
+    const pricing = getProductPriceDisplay(item.product);
+    return !pricing.isPriceOnRequest && pricing.numericPrice !== undefined;
+  });
+
+  const totalEstimated = quoteCart.reduce((sum, item) => {
+    const pricing = getProductPriceDisplay(item.product);
+    if (!pricing.isPriceOnRequest && pricing.numericPrice !== undefined) {
+      return sum + pricing.numericPrice * item.quantity;
+    }
+    return sum;
+  }, 0);
 
   const totalItemCount = quoteCart.reduce((sum, item) => sum + item.quantity, 0);
 
@@ -161,20 +169,31 @@ export const QuotationDrawer: React.FC = () => {
 
                           {/* Line price */}
                           <div className="text-right">
-                            {item.product.pricePhp ? (
-                              <div>
-                                <span className="text-xs font-extrabold text-[#292F36]">
-                                  ₱{(item.product.pricePhp * item.quantity).toLocaleString()}
-                                </span>
-                                <div className="text-[10px] text-gray-400">
-                                  @ ₱{item.product.pricePhp.toLocaleString()}/{getProductSalesUnit(item.product)}
+                            {(() => {
+                              const pricing = getProductPriceDisplay(item.product);
+                              if (!pricing.isPriceOnRequest && pricing.numericPrice !== undefined) {
+                                return (
+                                  <div>
+                                    <span className="text-xs font-extrabold text-[#292F36]">
+                                      {pricing.mode === 'starting' ? 'From ' : ''}₱{(pricing.numericPrice * item.quantity).toLocaleString()}
+                                    </span>
+                                    <div className="text-[10px] text-gray-400">
+                                      @ ₱{pricing.numericPrice.toLocaleString()}/{getProductSalesUnit(item.product)}
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              return (
+                                <div>
+                                  <span className="text-xs font-semibold text-[#B5121B]">
+                                    Price on Request
+                                  </span>
+                                  <div className="text-[10px] text-gray-400">
+                                    Project Quote
+                                  </div>
                                 </div>
-                              </div>
-                            ) : (
-                              <span className="text-xs font-semibold text-gray-600">
-                                Call for Quote
-                              </span>
-                            )}
+                              );
+                            })()}
                           </div>
                         </div>
                       </div>
@@ -200,18 +219,27 @@ export const QuotationDrawer: React.FC = () => {
           {quoteCart.length > 0 && (
             <div className="p-4 bg-gray-50 border-t border-gray-200 space-y-3">
               <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs text-gray-500">
-                  <span>Estimated Total (Sample SRP):</span>
-                  <span className="font-mono">
-                    ₱{totalEstimated.toLocaleString()} PHP
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-sm font-extrabold text-[#292F36]">
-                  <span>Estimated Subtotal:</span>
-                  <span className="text-base text-[#B5121B]">
-                    ₱{totalEstimated.toLocaleString()}
-                  </span>
-                </div>
+                {hasCalculatedPrices ? (
+                  <>
+                    <div className="flex items-center justify-between text-xs text-gray-500">
+                      <span>Estimated Total (Sample SRP):</span>
+                      <span className="font-mono">
+                        ₱{totalEstimated.toLocaleString()} PHP
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between text-sm font-extrabold text-[#292F36]">
+                      <span>Estimated Subtotal:</span>
+                      <span className="text-base text-[#B5121B]">
+                        ₱{totalEstimated.toLocaleString()}
+                      </span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="p-2.5 bg-gray-100 rounded text-center">
+                    <span className="text-xs font-bold text-gray-700 block">Pricing Structure: Price on Request (B2B)</span>
+                    <span className="text-[11px] text-gray-500">Official pro-forma quotation generated upon RFQ submission</span>
+                  </div>
+                )}
                 <p className="text-[10px] text-gray-400 italic">
                   * Prices subject to corporate discounts, project registration, and VAT breakdown.
                 </p>

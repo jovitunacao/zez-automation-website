@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Product } from '../types';
-import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata, handleProductImageError } from '../utils/productUtils';
+import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata, handleProductImageError, getProductPriceDisplay } from '../utils/productUtils';
 import { ENGINEERING_SERVICES } from '../data/services';
 
 export const HomeView: React.FC = () => {
@@ -548,6 +548,7 @@ export const HomeView: React.FC = () => {
             const displayBrand = getDisplayBrand(prod.brand);
             const salesUnit = getProductSalesUnit(prod);
             const imgMeta = getProductImageMetadata(prod);
+            const priceInfo = getProductPriceDisplay(prod);
 
             return (
               <div
@@ -594,12 +595,14 @@ export const HomeView: React.FC = () => {
                     {prod.name}
                   </h3>
 
-                  {/* Price */}
+                  {/* Price / B2B Price on Request */}
                   <div className="mt-3 pt-3 border-t border-gray-100 flex items-baseline justify-between">
                     <div>
-                      <div className="text-[10px] text-gray-400 font-semibold uppercase">Official SRP</div>
-                      <div className="text-base font-extrabold text-[#292F36] font-mono">
-                        {prod.pricePhp ? `₱${prod.pricePhp.toLocaleString()}` : 'Inquire for Price'}
+                      <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider">
+                        {priceInfo.isPriceOnRequest ? 'B2B Procurement' : 'Indicative Price'}
+                      </div>
+                      <div className={`text-sm sm:text-base font-extrabold ${priceInfo.isPriceOnRequest ? 'text-[#B5121B]' : 'text-[#292F36] font-mono'}`}>
+                        {priceInfo.displayPrice}
                       </div>
                     </div>
                     {salesUnit && (

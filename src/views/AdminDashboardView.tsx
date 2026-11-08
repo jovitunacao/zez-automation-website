@@ -90,6 +90,9 @@ export const AdminDashboardView: React.FC = () => {
     categories, 
     brands, 
     rfqRequests, 
+    rfqsLoading,
+    rfqsError,
+    refreshRfqs,
     updateRfqStatus, 
     setActiveRfqForPrint, 
     siteSettings, 
@@ -853,7 +856,9 @@ export const AdminDashboardView: React.FC = () => {
   // Tab switching data loaders
   useEffect(() => {
     if (isAdminAuthenticated) {
-      if (activeAdminTab === 'admins' && isSuperAdmin) {
+      if (activeAdminTab === 'rfqs') {
+        refreshRfqs();
+      } else if (activeAdminTab === 'admins' && isSuperAdmin) {
         loadAdmins();
       } else if (activeAdminTab === 'notifications') {
         loadNotificationData();
@@ -1289,6 +1294,17 @@ export const AdminDashboardView: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => refreshRfqs()}
+                disabled={rfqsLoading}
+                className="px-3 py-2 bg-gray-50 hover:bg-gray-100 text-gray-700 border border-gray-300 rounded-lg font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer shadow-2xs"
+                title="Refresh quotation requests from Supabase"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 text-[#B5121B] ${rfqsLoading ? 'animate-spin' : ''}`} />
+                <span>{rfqsLoading ? 'Refreshing...' : 'Refresh RFQs'}</span>
+              </button>
+
               <span className="text-gray-500 font-medium">Filter Status:</span>
               <select
                 value={rfqStatusFilter}
@@ -1307,9 +1323,44 @@ export const AdminDashboardView: React.FC = () => {
             </div>
           </div>
 
-          {/* Quotations List */}
-          {filteredRfqs.length === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500 space-y-3">
+          {/* Database Error State */}
+          {rfqsError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-xs flex items-start justify-between gap-3 text-red-900 shadow-2xs">
+              <div className="flex items-start gap-2.5">
+                <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <h4 className="font-bold text-red-900">Database Connection Error</h4>
+                  <p className="text-red-700">
+                    Failed to query quotation requests from Supabase: {rfqsError}
+                  </p>
+                  <p className="text-[11px] text-red-600">
+                    Please verify your administrator session permissions or network connectivity.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => refreshRfqs()}
+                disabled={rfqsLoading}
+                className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg font-bold flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50 cursor-pointer text-xs"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${rfqsLoading ? 'animate-spin' : ''}`} />
+                <span>Retry</span>
+              </button>
+            </div>
+          )}
+
+          {/* Quotations List / Loading / Empty States */}
+          {rfqsLoading && rfqRequests.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500 space-y-3 shadow-2xs">
+              <Loader2 className="w-8 h-8 text-[#B5121B] animate-spin mx-auto" />
+              <h3 className="font-bold text-gray-800 text-sm">Loading Quotation Requests...</h3>
+              <p className="text-xs text-gray-500 max-w-sm mx-auto">
+                Retrieving live B2B quotation submissions and line items from Supabase database.
+              </p>
+            </div>
+          ) : !rfqsError && filteredRfqs.length === 0 ? (
+            <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500 space-y-3 shadow-2xs">
               <FileText className="w-10 h-10 text-gray-300 mx-auto" />
               <h3 className="font-bold text-gray-800 text-sm">No Quotation Requests Found</h3>
               <p className="text-xs text-gray-500 max-w-sm mx-auto">

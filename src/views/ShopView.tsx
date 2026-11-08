@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { Product } from '../types';
-import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata, handleProductImageError } from '../utils/productUtils';
+import { getDisplayBrand, getProductSalesUnit, getProductImageMetadata, handleProductImageError, getProductPriceDisplay } from '../utils/productUtils';
 
 export const ShopView: React.FC = () => {
   const { 
@@ -627,24 +627,27 @@ export const ShopView: React.FC = () => {
 
                       {/* Price and Buttons */}
                       <div className="space-y-3 pt-1">
-                        <div className="flex items-baseline justify-between">
-                          <div>
-                            <div className="text-[10px] text-gray-400 uppercase tracking-wide">
-                              SRP Reference
+                        {(() => {
+                          const priceInfo = getProductPriceDisplay(product);
+                          return (
+                            <div className="flex items-baseline justify-between">
+                              <div>
+                                <div className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">
+                                  {priceInfo.isPriceOnRequest ? 'B2B Procurement' : 'Indicative Price'}
+                                </div>
+                                <div className={`text-base font-extrabold ${priceInfo.isPriceOnRequest ? 'text-[#B5121B]' : 'text-[#292F36] font-mono'}`}>
+                                  {priceInfo.displayPrice}
+                                  {!priceInfo.isPriceOnRequest && salesUnit && (
+                                    <span className="text-xs font-normal text-gray-500 ml-1">/ {salesUnit}</span>
+                                  )}
+                                </div>
+                              </div>
+                              <span className="text-[10px] text-gray-400">
+                                {priceInfo.isPriceOnRequest ? 'Project Volume' : 'Net of VAT'}
+                              </span>
                             </div>
-                            <div className="text-base font-extrabold text-[#292F36]">
-                              {product.pricePhp ? (
-                                <>
-                                  ₱{product.pricePhp.toLocaleString()}
-                                  {salesUnit && <span className="text-xs font-normal text-gray-500 ml-1">/ {salesUnit}</span>}
-                                </>
-                              ) : (
-                                <span className="text-xs text-gray-500">Contact for Quote</span>
-                              )}
-                            </div>
-                          </div>
-                          <span className="text-[10px] text-gray-400">Net of VAT</span>
-                        </div>
+                          );
+                        })()}
 
                         <div className="grid grid-cols-2 gap-2">
                           <button
@@ -720,16 +723,22 @@ export const ShopView: React.FC = () => {
                     </div>
 
                     <div className="shrink-0 text-right w-full sm:w-auto pt-3 sm:pt-0 border-t sm:border-t-0 border-gray-100 space-y-2">
-                      <div className="text-base font-extrabold text-[#292F36]">
-                        {product.pricePhp ? (
-                          <>
-                            ₱{product.pricePhp.toLocaleString()}
-                            {salesUnit && <span className="text-xs font-normal text-gray-500 ml-1">/ {salesUnit}</span>}
-                          </>
-                        ) : (
-                          'For Project Pricing'
-                        )}
-                      </div>
+                      {(() => {
+                        const priceInfo = getProductPriceDisplay(product);
+                        return (
+                          <div>
+                            <div className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">
+                              {priceInfo.isPriceOnRequest ? 'Procurement' : 'Indicative'}
+                            </div>
+                            <div className={`text-base font-extrabold ${priceInfo.isPriceOnRequest ? 'text-[#B5121B]' : 'text-[#292F36] font-mono'}`}>
+                              {priceInfo.displayPrice}
+                              {!priceInfo.isPriceOnRequest && salesUnit && (
+                                <span className="text-xs font-normal text-gray-500 ml-1">/ {salesUnit}</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
                       <div className="flex sm:flex-col gap-2">
                         <button
                           onClick={() => addToQuoteCart(product, 1)}
