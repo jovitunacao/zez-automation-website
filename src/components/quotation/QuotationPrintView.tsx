@@ -11,11 +11,13 @@ import {
   Phone,
   Mail,
   Copy,
-  ExternalLink
+  ExternalLink,
+  Download
 } from 'lucide-react';
 import { Quotation } from '../../types';
 import { Logo } from '../brand/Logo';
 import { useApp } from '../../context/AppContext';
+import { downloadQuotationPdf } from '../../services/quotationPdfService';
 
 interface QuotationPrintViewProps {
   quotation: Quotation | null;
@@ -85,11 +87,19 @@ export const QuotationPrintView: React.FC<QuotationPrintViewProps> = ({ quotatio
               <span>{copiedLink ? 'Link Copied!' : 'Copy Link'}</span>
             </button>
             <button
-              onClick={handlePrint}
-              className="px-3.5 py-1.5 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+              onClick={() => downloadQuotationPdf(quotation)}
+              className="px-3 py-1.5 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+              title="Download genuine corporate PDF document"
             >
-              <Printer className="w-4 h-4" />
-              <span>Print / Save PDF</span>
+              <Download className="w-3.5 h-3.5" />
+              <span>Download PDF</span>
+            </button>
+            <button
+              onClick={handlePrint}
+              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print Slip</span>
             </button>
             <button
               onClick={onClose}

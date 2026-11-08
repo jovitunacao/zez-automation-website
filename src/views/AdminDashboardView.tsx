@@ -49,7 +49,8 @@ import {
   Calculator,
   FilePlus,
   Copy,
-  ExternalLink
+  ExternalLink,
+  Download
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { 
@@ -94,6 +95,7 @@ import {
   persistQuotation, 
   dispatchQuotationEmail 
 } from '../services/quotationService';
+import { downloadQuotationPdf } from '../services/quotationPdfService';
 import { QuotationMakerModal } from '../components/quotation/QuotationMakerModal';
 import { QuotationPrintView } from '../components/quotation/QuotationPrintView';
 
@@ -1813,12 +1815,21 @@ export const AdminDashboardView: React.FC = () => {
                           </button>
 
                           <button
+                            onClick={() => downloadQuotationPdf(quote)}
+                            className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-[#B5121B] font-bold rounded-lg flex items-center gap-1 transition-colors cursor-pointer border border-red-200"
+                            title="Download official corporate branded PDF"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                            <span>PDF</span>
+                          </button>
+
+                          <button
                             onClick={() => setSelectedQuotationForPrint(quote)}
                             className="px-2.5 py-1 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg flex items-center gap-1 transition-colors cursor-pointer"
-                            title="Generate and print official corporate PDF quotation"
+                            title="Generate and print official corporate quotation slip"
                           >
                             <Printer className="w-3.5 h-3.5 text-gray-600" />
-                            <span>Print / PDF</span>
+                            <span>Print Slip</span>
                           </button>
 
                           <button

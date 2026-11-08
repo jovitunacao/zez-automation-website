@@ -8,7 +8,8 @@ import {
   RfqCustomerInfo, 
   SiteSettings, 
   FilterState,
-  AdminRole 
+  AdminRole,
+  AdminUserSession 
 } from '../types';
 import { CONSIGNMENT_PRODUCTS } from '../data/consignmentProducts';
 import { CATEGORIES } from '../data/categories';
@@ -42,13 +43,7 @@ export type ActiveView =
   | 'contact'
   | 'customer-quote';
 
-export interface AdminUserSession {
-  id: string;
-  email: string;
-  fullName?: string;
-  role?: AdminRole;
-  receiveRfqNotifications?: boolean;
-}
+export type { AdminUserSession } from '../types';
 
 interface AppContextType {
   // Navigation
@@ -938,7 +933,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const handleUpdateOwnNotificationPreference = async (enabled: boolean): Promise<{ success: boolean; error?: string }> => {
     const res = await updateOwnNotificationPreference(enabled);
     if (res.success && adminUser) {
-      setAdminUser(prev => prev ? { ...prev, receiveRfqNotifications: enabled } : null);
+      setAdminUser((prev: AdminUserSession | null) => prev ? { ...prev, receiveRfqNotifications: enabled } : null);
     }
     return res;
   };

@@ -1,72 +1,78 @@
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { 
   Quotation, 
   QuotationLineItem, 
   QuotationRequest, 
-  QuotationStatus, 
-  AdminRole 
+  AdminUserSession, 
+  QuotationStatus,
+  VatType,
+  DiscountType 
 } from '../types';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { 
   calculateLineTotal, 
   calculateQuotationTotals, 
-  generateCustomerAccessToken, 
   generateFallbackQuotationId, 
+  generateCustomerAccessToken,
   round2 
 } from '../utils/quotationCalculations';
-import { AdminUserSession } from '../context/AppContext';
+import { generateQuotationPdfBase64 } from './quotationPdfService';
 
-const LOCAL_STORAGE_QUOTATIONS_KEY = 'zez_admin_quotations';
+const LOCAL_STORAGE_KEY = 'zez_b2b_quotations_cache';
 
-function getLocalQuotations(): Quotation[] {
+/**
+ * Retrieves local stored quotations for dev testing or offline fallback.
+ */
+export function getLocalQuotations(): Quotation[] {
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_QUOTATIONS_KEY);
-    if (raw) return JSON.parse(raw);
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw);
   } catch (e) {
-    console.error(e);
-  }
-  return [];
-}
-
-function saveLocalQuotations(quotes: Quotation[]): void {
-  try {
-    localStorage.setItem(LOCAL_STORAGE_QUOTATIONS_KEY, JSON.stringify(quotes));
-  } catch (e) {
-    console.error(e);
+    return [];
   }
 }
 
 /**
- * Converts a customer-submitted Request for Quotation (RFQ) into an editable draft B2B Quotation.
- * The original RFQ remains unchanged.
+ * Saves quotations array to local cache.
+ */
+export function saveLocalQuotations(quotes: Quotation[]): void {
+  try {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(quotes));
+  } catch (e) {
+    console.warn('[ZEZ Quotation] Failed to cache quotations locally:', e);
+  }
+}
+
+/**
+ * Converts an incoming customer RFQ into an editable B2B Quotation draft.
+ * Preserves the original RFQ request without modifying it.
  */
 export function convertRfqToQuotation(
-  rfq: QuotationRequest, 
+  rfq: QuotationRequest,
   adminUser?: AdminUserSession | null
 ): Quotation {
   const now = new Date();
-  const validUntil = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days validity
-
+  const validUntil = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
   const fallbackId = generateFallbackQuotationId();
   const token = generateCustomerAccessToken();
 
-  const lineItems: QuotationLineItem[] = (rfq.items || []).map((item, idx) => {
-    const unitPrice = item.unitPricePhp && item.unitPricePhp > 0 ? item.unitPricePhp : 0;
-    const lineTotal = calculateLineTotal(item.quantity, unitPrice, 0);
+  const lineItems: QuotationLineItem[] = rfq.items.map((item, idx) => {
+    const unitPrice = item.subtotalPhp && item.quantity > 0 
+      ? round2(item.subtotalPhp / item.quantity) 
+      : 0;
 
     return {
       id: `item-${Date.now()}-${idx}`,
       productId: item.productId,
-      sku: item.sku,
+      sku: item.model ? `ZEZ-${item.model.replace(/\s+/g, '-').toUpperCase()}` : undefined,
       productName: item.productName,
       model: item.model,
-      brand: item.brand,
       quantity: Math.max(1, item.quantity),
       unitPricePhp: unitPrice,
       discountPercent: 0,
-      lineTotalPhp: lineTotal,
-      leadTime: '1-3 business days in stock / 5-7 days pre-order',
-      warranty: 'Standard 1-Year Local Manufacturer Warranty',
-      notes: item.notes || '',
+      lineTotalPhp: calculateLineTotal(item.quantity, unitPrice, 0),
+      leadTime: 'Standard Freight Delivery (3-5 business days upon PO acceptance)',
+      warranty: 'Standard 1-Year Local Manufacturer Warranty on Hardware',
       sortOrder: idx
     };
   });
@@ -75,33 +81,35 @@ export function convertRfqToQuotation(
     items: lineItems,
     discountType: 'percentage',
     discountValue: 0,
-    vatType: 'vat_inclusive_12',
-    deliveryFeePhp: 0,
-    installationFeePhp: 0,
-    otherFeesPhp: 0
+    vatType: 'vat_inclusive_12'
   });
+
+  const specialistName = adminUser?.fullName
+    ? `${adminUser.fullName} (${adminUser.role === 'super_admin' ? 'Super Admin' : 'Sales Specialist'})`
+    : 'ZEZ Commercial Engineering Group';
 
   return {
     id: fallbackId,
+    baseQuotationId: fallbackId,
     rfqId: rfq.id,
     revisionNumber: 1,
     status: 'Draft',
-    customerFullName: rfq.customer.fullName,
+    customerFullName: rfq.customer.fullName || 'Purchasing Department',
     customerCompanyName: rfq.customer.companyName || '',
     customerEmail: rfq.customer.email,
-    customerMobileNumber: rfq.customer.mobileNumber,
-    deliveryCityProvince: rfq.customer.deliveryCityProvince,
-    deliveryAddress: rfq.customer.deliveryAddress || '',
-    tinNumber: rfq.customer.tinNumber || '',
-    paymentTerms: '30 Days Net upon credit approval (or Bank Transfer prior to dispatch)',
-    warrantyTerms: 'Standard 1-Year Manufacturer Warranty against manufacturing defects. Tracked by Serial Number.',
+    customerMobileNumber: rfq.customer.mobileNumber || '',
+    deliveryCityProvince: rfq.customer.deliveryCityProvince || 'Metro Manila',
+    deliveryAddress: rfq.customer.deliveryCityProvince || '',
+    tinNumber: '',
+    paymentTerms: 'Cash On Delivery (COD) / Full Payment upon turnover',
+    warrantyTerms: 'Standard 1-Year Local Manufacturer Warranty on Hardware',
     validityDays: 30,
     validUntil: validUntil.toISOString(),
     currency: 'PHP',
-    leadTimeDescription: 'Standard delivery is 1-3 business days from regional distribution hubs (Davao / Zamboanga) or partner freight.',
+    leadTimeDescription: 'Standard Freight Delivery (3-5 business days upon PO acceptance)',
     specialInstructions: rfq.customer.additionalRequirements || '',
     adminNotes: rfq.adminNotes ? `RFQ Notes: ${rfq.adminNotes}` : '',
-    assignedSpecialist: adminUser?.fullName || rfq.assignedSpecialist || 'Marco Rivera (Enterprise Account Manager)',
+    assignedSpecialist: specialistName,
     subtotalPhp: totals.subtotalPhp,
     discountType: 'percentage',
     discountValue: 0,
@@ -142,8 +150,13 @@ export function createBlankQuotation(adminUser?: AdminUserSession | null): Quota
   const fallbackId = generateFallbackQuotationId();
   const token = generateCustomerAccessToken();
 
+  const specialistName = adminUser?.fullName
+    ? `${adminUser.fullName} (${adminUser.role === 'super_admin' ? 'Super Admin' : 'Sales Specialist'})`
+    : 'ZEZ Commercial Engineering Group';
+
   return {
     id: fallbackId,
+    baseQuotationId: fallbackId,
     revisionNumber: 1,
     status: 'Draft',
     customerFullName: '',
@@ -153,15 +166,15 @@ export function createBlankQuotation(adminUser?: AdminUserSession | null): Quota
     deliveryCityProvince: 'Metro Manila',
     deliveryAddress: '',
     tinNumber: '',
-    paymentTerms: '30 Days Net upon credit approval (or Bank Transfer prior to dispatch)',
-    warrantyTerms: 'Standard 1-Year Manufacturer Warranty against manufacturing defects. Tracked by Serial Number.',
+    paymentTerms: 'Cash On Delivery (COD) / Full Payment upon turnover',
+    warrantyTerms: 'Standard 1-Year Local Manufacturer Warranty on Hardware',
     validityDays: 30,
     validUntil: validUntil.toISOString(),
     currency: 'PHP',
-    leadTimeDescription: 'Standard delivery is 1-3 business days from regional hubs (Davao / Zamboanga).',
+    leadTimeDescription: 'Standard Freight Delivery (3-5 business days upon PO acceptance)',
     specialInstructions: '',
     adminNotes: '',
-    assignedSpecialist: adminUser?.fullName || 'Marco Rivera (Enterprise Account Manager)',
+    assignedSpecialist: specialistName,
     subtotalPhp: 0,
     discountType: 'percentage',
     discountValue: 0,
@@ -194,12 +207,16 @@ export function createBlankQuotation(adminUser?: AdminUserSession | null): Quota
 
 /**
  * Duplicates an existing quotation as a new revision (e.g. Revision 2), keeping history.
+ * Preserves immutable sent quotation versions; never overwrites issued revisions.
  */
 export function duplicateAsRevision(original: Quotation, adminUser?: AdminUserSession | null): Quotation {
   const now = new Date();
   const nextRev = (original.revisionNumber || 1) + 1;
   const token = generateCustomerAccessToken();
   const validUntil = new Date(now.getTime() + (original.validityDays || 30) * 24 * 60 * 60 * 1000);
+
+  const baseId = original.baseQuotationId || original.id.replace(/-R\d+$/, '');
+  const revisionId = `${baseId}-R${nextRev}`;
 
   const duplicatedItems = (original.items || []).map((it, idx) => ({
     ...it,
@@ -209,6 +226,8 @@ export function duplicateAsRevision(original: Quotation, adminUser?: AdminUserSe
 
   return {
     ...original,
+    id: revisionId,
+    baseQuotationId: baseId,
     revisionNumber: nextRev,
     status: 'Draft',
     customerAccessToken: token,
@@ -220,14 +239,18 @@ export function duplicateAsRevision(original: Quotation, adminUser?: AdminUserSe
     customerResponse: undefined,
     customerResponseAt: undefined,
     customerResponseNotes: undefined,
+    clientPoNumber: undefined,
+    lastEmailIdempotencyKey: undefined,
+    lastResendEmailId: undefined,
+    emailDeliveryCount: 0,
     items: duplicatedItems,
     auditLogs: [
       ...(original.auditLogs || []),
       {
         id: `audit-${Date.now()}`,
-        quotationId: original.id,
+        quotationId: revisionId,
         actorName: adminUser?.fullName || 'System Administrator',
-        action: `Created Revision ${nextRev} from Rev ${original.revisionNumber}`,
+        action: `Created Revision ${nextRev} from ${original.id}`,
         createdAt: now.toISOString()
       }
     ],
@@ -237,31 +260,44 @@ export function duplicateAsRevision(original: Quotation, adminUser?: AdminUserSe
 }
 
 /**
- * Saves or updates a quotation in Supabase (or local store if tables are not yet migrated).
+ * Saves or updates a quotation in Supabase.
+ * Enforces transaction consistency and never reports success on database error.
  */
 export async function persistQuotation(
   quotation: Quotation,
   adminUser?: AdminUserSession | null
 ): Promise<{ success: boolean; quotation?: Quotation; error?: string }> {
-  // Always update local cache for offline/dev resilience
-  const localList = getLocalQuotations();
-  const updatedList = [quotation, ...localList.filter(q => q.id !== quotation.id)];
-  saveLocalQuotations(updatedList);
-
   if (!isSupabaseConfigured() || !supabase) {
+    const localList = getLocalQuotations();
+    const updatedList = [quotation, ...localList.filter(q => q.id !== quotation.id)];
+    saveLocalQuotations(updatedList);
     return { success: true, quotation };
   }
 
   try {
-    // 1. If ID is placeholder, attempt to generate official sequence from database
-    let targetId = quotation.id;
-    if (targetId.startsWith('ZEZ-Q-') && targetId.length <= 15) {
-      // Valid ID format
-    }
+    const targetId = quotation.id;
+    const baseId = quotation.baseQuotationId || targetId.replace(/-R\d+$/, '');
 
-    // Upsert quotation row
-    const quotePayload: any = {
+    // 1. Try atomic database stored procedure first
+    const itemsPayload = (quotation.items || []).map((it, idx) => ({
+      product_id: it.productId || null,
+      sku: it.sku || null,
+      product_name: it.productName,
+      model: it.model || null,
+      brand: it.brand || null,
+      quantity: it.quantity,
+      unit_price_php: it.unitPricePhp,
+      discount_percent: it.discountPercent || 0,
+      line_total_php: it.lineTotalPhp,
+      lead_time: it.leadTime || null,
+      warranty: it.warranty || null,
+      notes: it.notes || null,
+      sort_order: idx
+    }));
+
+    const quoteRpcPayload = {
       id: targetId,
+      base_quotation_id: baseId,
       rfq_id: quotation.rfqId || null,
       revision_number: quotation.revisionNumber,
       status: quotation.status,
@@ -299,30 +335,62 @@ export async function persistQuotation(
       approved_by: quotation.approvedBy || null,
       approved_at: quotation.approvedAt || null,
       sent_at: quotation.sentAt || null,
-      sent_to_email: quotation.sentToEmail || null,
-      customer_response: quotation.customerResponse || null,
-      customer_response_at: quotation.customerResponseAt || null,
-      customer_response_notes: quotation.customerResponseNotes || null,
-      client_po_number: quotation.clientPoNumber || null,
-      updated_at: new Date().toISOString()
+      sent_to_email: quotation.sentToEmail || null
     };
+
+    const { data: rpcData, error: rpcErr } = await supabase.rpc('save_official_quotation', {
+      p_quote: quoteRpcPayload,
+      p_items: itemsPayload,
+      p_actor_name: adminUser?.fullName || 'System Administrator',
+      p_audit_action: `Saved Quotation (${quotation.status})`
+    });
+
+    if (!rpcErr && rpcData?.success) {
+      const saved: Quotation = {
+        ...quotation,
+        id: rpcData.id || quotation.id,
+        baseQuotationId: baseId,
+        revisionNumber: rpcData.revision_number || quotation.revisionNumber,
+        status: rpcData.status || quotation.status
+      };
+      const localList = getLocalQuotations();
+      saveLocalQuotations([saved, ...localList.filter(q => q.id !== saved.id)]);
+      return { success: true, quotation: saved };
+    }
+
+    // If RPC returned a logic/permission rejection, surface it immediately
+    if (rpcErr && !rpcErr.message.includes('save_official_quotation') && !rpcErr.message.includes('not found')) {
+      return { success: false, error: rpcErr.message };
+    }
+
+    // 2. Direct table upsert fallback (if RPC function not yet compiled in Supabase)
+    // Check immutability of sent quotations
+    const { data: existingQuote } = await supabase
+      .from('quotations')
+      .select('status, revision_number')
+      .eq('id', targetId)
+      .maybeSingle();
+
+    if (existingQuote && ['Sent', 'Accepted', 'Declined'].includes(existingQuote.status)) {
+      return {
+        success: false,
+        error: `Quotation ${targetId} is in immutable status (${existingQuote.status}). Issued commercial quotations cannot be modified. Create a new revision (Rev ${existingQuote.revision_number + 1}) to make amendments.`
+      };
+    }
 
     const { error: quoteErr } = await supabase
       .from('quotations')
-      .upsert(quotePayload, { onConflict: 'id' });
+      .upsert(quoteRpcPayload, { onConflict: 'id' });
 
     if (quoteErr) {
-      console.warn('[ZEZ Quotation] Supabase upsert error (falling back to local cache):', quoteErr.message);
-      // If table doesn't exist yet in Supabase, return success with local persistence
-      return { success: true, quotation, error: `Database notice: ${quoteErr.message}` };
+      console.error('[ZEZ Quotation] Supabase upsert error:', quoteErr.message);
+      return { success: false, error: `Database error: ${quoteErr.message}` };
     }
 
-    // 2. Upsert line items
-    // First remove old items to ensure clean synchronization
     await supabase.from('quotation_line_items').delete().eq('quotation_id', targetId);
 
     if (quotation.items && quotation.items.length > 0) {
-      const itemsPayload = quotation.items.map((it, idx) => ({
+      const dbItemsPayload = quotation.items.map((it, idx) => ({
         quotation_id: targetId,
         product_id: it.productId || null,
         sku: it.sku || null,
@@ -339,13 +407,18 @@ export async function persistQuotation(
         sort_order: idx
       }));
 
-      await supabase.from('quotation_line_items').insert(itemsPayload);
+      const { error: itemsErr } = await supabase.from('quotation_line_items').insert(dbItemsPayload);
+      if (itemsErr) {
+        return { success: false, error: `Failed to save quotation line items: ${itemsErr.message}` };
+      }
     }
 
+    const localList = getLocalQuotations();
+    saveLocalQuotations([quotation, ...localList.filter(q => q.id !== quotation.id)]);
     return { success: true, quotation };
   } catch (err: any) {
-    console.warn('[ZEZ Quotation] Exception persisting quotation:', err);
-    return { success: true, quotation }; // Graceful degradation
+    console.error('[ZEZ Quotation] Exception persisting quotation:', err);
+    return { success: false, error: err.message || 'Database connection error' };
   }
 }
 
@@ -365,7 +438,6 @@ export async function fetchAllQuotations(): Promise<{ data: Quotation[]; error: 
 
     if (quotesError) {
       console.warn('[ZEZ Quotation] Supabase fetch quotations notice:', quotesError.message);
-      // Return local stored quotations as fallback
       return { data: getLocalQuotations(), error: quotesError.message };
     }
 
@@ -407,6 +479,7 @@ export async function fetchAllQuotations(): Promise<{ data: Quotation[]; error: 
 
       return {
         id: row.id,
+        baseQuotationId: row.base_quotation_id || row.id.replace(/-R\d+$/, ''),
         rfqId: row.rfq_id,
         revisionNumber: row.revision_number,
         status: row.status as QuotationStatus,
@@ -449,6 +522,9 @@ export async function fetchAllQuotations(): Promise<{ data: Quotation[]; error: 
         customerResponseAt: row.customer_response_at,
         customerResponseNotes: row.customer_response_notes,
         clientPoNumber: row.client_po_number,
+        lastEmailIdempotencyKey: row.last_email_idempotency_key,
+        lastResendEmailId: row.last_resend_email_id,
+        emailDeliveryCount: row.email_delivery_count || 0,
         items,
         auditLogs,
         createdAt: row.created_at,
@@ -456,29 +532,38 @@ export async function fetchAllQuotations(): Promise<{ data: Quotation[]; error: 
       };
     });
 
-    // Update local storage cache
     saveLocalQuotations(mapped);
     return { data: mapped, error: null };
   } catch (err: any) {
-    console.warn('[ZEZ Quotation] Unexpected error fetching quotations:', err);
     return { data: getLocalQuotations(), error: err.message };
   }
 }
 
 /**
- * Loads a public quotation by its secure expiring customer token.
+ * Fetches a single quotation via customer access token for client portal.
+ * Enforces token expiration and sanitized data exposure.
  */
-export async function fetchPublicQuotation(token: string): Promise<{ success: boolean; quotation?: Quotation; error?: string }> {
-  // Check local cache first
+export async function fetchPublicQuotation(token: string): Promise<{
+  success: boolean;
+  quotation?: Quotation;
+  error?: string;
+  isExpired?: boolean;
+}> {
   const localList = getLocalQuotations();
   const foundLocal = localList.find(q => q.customerAccessToken === token);
-  if (foundLocal && (!isSupabaseConfigured() || !supabase)) {
-    return { success: true, quotation: foundLocal };
-  }
 
   if (!isSupabaseConfigured() || !supabase) {
-    if (foundLocal) return { success: true, quotation: foundLocal };
-    return { success: false, error: 'Quotation link not found or expired.' };
+    if (foundLocal) {
+      if (new Date(foundLocal.validUntil) < new Date() && foundLocal.status !== 'Accepted') {
+        return {
+          success: false,
+          error: 'This quotation link has expired. Confidential pricing has been secured.',
+          isExpired: true
+        };
+      }
+      return { success: true, quotation: foundLocal };
+    }
+    return { success: false, error: 'Quotation not found.' };
   }
 
   try {
@@ -486,11 +571,10 @@ export async function fetchPublicQuotation(token: string): Promise<{ success: bo
       p_token: token
     });
 
-    if (!rpcErr && rpcData && rpcData.success) {
+    if (rpcData && rpcData.success) {
       const q = rpcData.quotation;
-      const items = (rpcData.items || []).map((it: any) => ({
+      const items: QuotationLineItem[] = (rpcData.items || []).map((it: any) => ({
         id: it.id,
-        productId: it.product_id,
         sku: it.sku,
         productName: it.product_name,
         model: it.model,
@@ -507,9 +591,10 @@ export async function fetchPublicQuotation(token: string): Promise<{ success: bo
 
       const quotation: Quotation = {
         id: q.id,
+        baseQuotationId: q.id.replace(/-R\d+$/, ''),
         rfqId: q.rfq_id,
         revisionNumber: q.revision_number,
-        status: q.status,
+        status: q.status as QuotationStatus,
         customerFullName: q.customer_full_name,
         customerCompanyName: q.customer_company_name,
         customerEmail: q.customer_email,
@@ -524,7 +609,7 @@ export async function fetchPublicQuotation(token: string): Promise<{ success: bo
         currency: q.currency || 'PHP',
         leadTimeDescription: q.lead_time_description,
         specialInstructions: q.special_instructions,
-        adminNotes: q.admin_notes,
+        adminNotes: '', // Sanitized: Never exposed to client
         assignedSpecialist: q.assigned_specialist,
         subtotalPhp: Number(q.subtotal_php),
         discountType: q.discount_type,
@@ -538,17 +623,25 @@ export async function fetchPublicQuotation(token: string): Promise<{ success: bo
         installationFeePhp: Number(q.installation_fee_php),
         otherFeesPhp: Number(q.other_fees_php),
         grandTotalPhp: Number(q.grand_total_php),
-        customerAccessToken: q.customer_access_token,
-        tokenExpiresAt: q.token_expires_at,
+        customerAccessToken: token,
+        tokenExpiresAt: q.valid_until,
         customerResponse: q.customer_response,
         customerResponseAt: q.customer_response_at,
         customerResponseNotes: q.customer_response_notes,
         clientPoNumber: q.client_po_number,
         items,
         createdAt: q.created_at,
-        updatedAt: q.updated_at
+        updatedAt: q.created_at
       };
       return { success: true, quotation };
+    }
+
+    if (rpcData && rpcData.is_expired) {
+      return {
+        success: false,
+        error: rpcData.error || 'Quotation expired.',
+        isExpired: true
+      };
     }
 
     if (foundLocal) {
@@ -596,23 +689,34 @@ export async function submitCustomerQuotationResponse(
     });
 
     if (error) {
-      console.warn('[ZEZ Quotation] Response RPC error:', error.message);
-      return { success: true }; // Local updated
+      return { success: false, error: error.message };
     }
 
-    return { success: data?.success !== false, error: data?.error };
-  } catch (err: any) {
+    if (data && data.success === false) {
+      return { success: false, error: data.error };
+    }
+
     return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err.message };
   }
 }
 
 /**
  * Dispatches the official quotation email via Supabase Edge Function `send-quotation-email`.
+ * Attaches the genuine corporate PDF and enforces approval status.
  */
 export async function dispatchQuotationEmail(
-  quotationId: string,
+  quotation: Quotation,
   customMessage?: string
 ): Promise<{ success: boolean; error?: string }> {
+  if (quotation.status === 'Draft') {
+    return {
+      success: false,
+      error: "Cannot send quotation in 'Draft' status. Quotation must be officially Approved before sending to customer."
+    };
+  }
+
   if (!isSupabaseConfigured() || !supabase) {
     return { 
       success: true, 
@@ -624,10 +728,22 @@ export async function dispatchQuotationEmail(
     const { data: sessionData } = await supabase.auth.getSession();
     const token = sessionData?.session?.access_token;
 
+    let pdfBase64 = '';
+    try {
+      pdfBase64 = generateQuotationPdfBase64(quotation);
+    } catch (pdfErr) {
+      console.warn('[ZEZ Quotation] Could not generate PDF attachment:', pdfErr);
+    }
+
+    const stableKey = `zez_quote_${quotation.id}_rev${quotation.revisionNumber}`;
+
     const { data, error } = await supabase.functions.invoke('send-quotation-email', {
       body: {
-        quotation_id: quotationId,
-        custom_message: customMessage
+        quotation_id: quotation.id,
+        recipient_email: quotation.customerEmail,
+        custom_message: customMessage,
+        idempotency_key: stableKey,
+        pdf_base64: pdfBase64
       },
       headers: token ? { Authorization: `Bearer ${token}` } : {}
     });

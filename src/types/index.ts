@@ -161,6 +161,15 @@ export interface AdministratorUser {
   updatedAt?: string;
 }
 
+export interface AdminUserSession {
+  id: string;
+  email: string;
+  fullName?: string;
+  role?: AdminRole;
+  receiveRfqNotifications?: boolean;
+  isActive?: boolean;
+}
+
 export type NotificationStatus = 
   | 'pending' 
   | 'queued' 
@@ -296,6 +305,10 @@ export interface Quotation {
   customerResponseAt?: string;
   customerResponseNotes?: string;
   clientPoNumber?: string;
+  baseQuotationId?: string;
+  lastEmailIdempotencyKey?: string;
+  lastResendEmailId?: string;
+  emailDeliveryCount?: number;
   items: QuotationLineItem[];
   auditLogs?: QuotationAuditLog[];
   createdAt: string;

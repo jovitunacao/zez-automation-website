@@ -14,10 +14,12 @@ import {
   ShieldCheck, 
   Loader2,
   Check,
-  Send
+  Send,
+  Download
 } from 'lucide-react';
 import { Quotation } from '../types';
 import { fetchPublicQuotation, submitCustomerQuotationResponse } from '../services/quotationService';
+import { downloadQuotationPdf } from '../services/quotationPdfService';
 import { Logo } from '../components/brand/Logo';
 import { useApp } from '../context/AppContext';
 
@@ -166,11 +168,19 @@ export const CustomerQuotationView: React.FC<CustomerQuotationViewProps> = ({ to
 
         <div className="flex items-center gap-2">
           <button
+            onClick={() => downloadQuotationPdf(quotation)}
+            className="px-3.5 py-2 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+            title="Download genuine corporate PDF quotation document"
+          >
+            <Download className="w-4 h-4" />
+            <span>Download PDF</span>
+          </button>
+          <button
             onClick={handlePrint}
             className="px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer border border-white/20"
           >
             <Printer className="w-4 h-4" />
-            <span>Print or Save PDF</span>
+            <span>Print Slip</span>
           </button>
 
           {quotation.status !== 'Accepted' && quotation.status !== 'Declined' && (

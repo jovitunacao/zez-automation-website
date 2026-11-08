@@ -16,7 +16,9 @@ import {
   DollarSign, 
   ShieldCheck, 
   Check, 
-  Loader2 
+  Loader2,
+  Download,
+  Lock
 } from 'lucide-react';
 import { 
   Quotation, 
@@ -35,6 +37,7 @@ import {
   duplicateAsRevision, 
   dispatchQuotationEmail 
 } from '../../services/quotationService';
+import { downloadQuotationPdf } from '../../services/quotationPdfService';
 import { useApp } from '../../context/AppContext';
 
 interface QuotationMakerModalProps {
@@ -202,22 +205,35 @@ export const QuotationMakerModal: React.FC<QuotationMakerModalProps> = ({
     setIsSendingEmail(true);
     setErrorMessage(null);
 
-    // First save any unsaved changes
-    await persistQuotation({ ...quote, status: 'Approved' }, adminUser);
+    // First ensure quotation is approved and saved
+    const approvedQuote: Quotation = {
+      ...quote,
+      status: 'Approved',
+      approvedAt: quote.approvedAt || new Date().toISOString(),
+      approvedBy: quote.approvedBy || adminUser?.id
+    };
 
-    const res = await dispatchQuotationEmail(quote.id);
+    const saveRes = await persistQuotation(approvedQuote, adminUser);
+    if (!saveRes.success) {
+      setIsSendingEmail(false);
+      setErrorMessage(saveRes.error || 'Failed to approve and save quotation prior to email dispatch.');
+      return;
+    }
+
+    const targetQuote = saveRes.quotation || approvedQuote;
+    const res = await dispatchQuotationEmail(targetQuote);
     setIsSendingEmail(false);
 
     if (res.success) {
       const updatedQuote: Quotation = {
-        ...quote,
+        ...targetQuote,
         status: 'Sent',
         sentAt: new Date().toISOString(),
         sentToEmail: quote.customerEmail
       };
       setQuote(updatedQuote);
       onSaved(updatedQuote);
-      setSaveSuccessMessage(`Quotation ${quote.id} sent successfully to ${quote.customerEmail}!`);
+      setSaveSuccessMessage(`Quotation ${quote.id} Rev ${quote.revisionNumber} sent successfully to ${quote.customerEmail}!`);
       setTimeout(() => setSaveSuccessMessage(null), 4000);
     } else {
       setErrorMessage(res.error || 'Failed to dispatch quotation email.');
@@ -267,11 +283,21 @@ export const QuotationMakerModal: React.FC<QuotationMakerModalProps> = ({
 
           <div className="flex items-center gap-2">
             <button
+              type="button"
+              onClick={() => downloadQuotationPdf(quote)}
+              className="px-3 py-1.5 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer shadow-2xs"
+              title="Download genuine corporate PDF quotation document"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Download PDF</span>
+            </button>
+            <button
+              type="button"
               onClick={() => onPreviewPrint(quote)}
               className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-semibold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Preview / PDF</span>
+              <span>Print Slip</span>
             </button>
             <button
               onClick={onClose}
@@ -293,6 +319,24 @@ export const QuotationMakerModal: React.FC<QuotationMakerModalProps> = ({
           <div className="bg-red-50 border-b border-red-200 p-3 text-xs text-red-800 flex items-center gap-2 font-medium">
             <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
             <span>{errorMessage}</span>
+          </div>
+        )}
+
+        {['Sent', 'Accepted', 'Declined'].includes(quote.status) && (
+          <div className="bg-amber-50 border-b border-amber-200 p-3 text-xs text-amber-900 flex items-center justify-between font-medium">
+            <div className="flex items-center gap-2">
+              <Lock className="w-4 h-4 text-amber-700 shrink-0" />
+              <span>
+                <strong>Issued Quotation (Immutable Version):</strong> This quotation was officially dispatched to the customer. To alter items, quantities, or pricing, click <strong>Create Revision</strong> to issue Rev {(quote.revisionNumber || 1) + 1}.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleCreateRevision}
+              className="px-2.5 py-1 bg-amber-200 hover:bg-amber-300 text-amber-950 font-bold rounded text-[11px] transition-colors cursor-pointer shrink-0"
+            >
+              + New Rev {(quote.revisionNumber || 1) + 1}
+            </button>
           </div>
         )}
 
@@ -573,23 +617,68 @@ export const QuotationMakerModal: React.FC<QuotationMakerModalProps> = ({
 
                 <div>
                   <label className="block text-gray-600 font-semibold mb-1">Payment Terms</label>
-                  <input
-                    type="text"
+                  <select
                     value={quote.paymentTerms}
                     onChange={(e) => recalculateAndSet({ paymentTerms: e.target.value })}
-                    className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg"
-                  />
+                    className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-xs"
+                  >
+                    <option value="Cash On Delivery (COD) / Full Payment upon turnover">Cash On Delivery (COD) / Full Payment upon turnover</option>
+                    <option value="50% Downpayment, 50% upon completed installation/delivery">50% Downpayment, 50% upon completed installation/delivery</option>
+                    <option value="15 Days Net from Invoice receipt (Subject to credit verification)">15 Days Net from Invoice receipt (Subject to credit verification)</option>
+                    <option value="30 Days Net upon approval (Subject to credit verification)">30 Days Net upon approval (Subject to credit verification)</option>
+                    <option value="Custom / Specified in Contract Schedule">Custom / Specified in Contract Schedule</option>
+                  </select>
                 </div>
               </div>
 
               <div>
                 <label className="block text-gray-600 font-semibold mb-1">Warranty Details</label>
-                <input
-                  type="text"
+                <select
                   value={quote.warrantyTerms}
                   onChange={(e) => recalculateAndSet({ warrantyTerms: e.target.value })}
-                  className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg"
-                />
+                  className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-xs"
+                >
+                  <option value="Standard 1-Year Local Manufacturer Warranty on Hardware">Standard 1-Year Local Manufacturer Warranty on Hardware</option>
+                  <option value="3-Year Limited Manufacturer Warranty (Enterprise Active Gear)">3-Year Limited Manufacturer Warranty (Enterprise Active Gear)</option>
+                  <option value="Pass-through Manufacturer Warranty per component">Pass-through Manufacturer Warranty per component</option>
+                  <option value="Custom Warranty as stipulated in SLA Schedule">Custom Warranty as stipulated in SLA Schedule</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-gray-600 font-semibold mb-1">Lead Time & Freight Logistics</label>
+                <select
+                  value={quote.leadTimeDescription || 'Standard Freight Delivery (3-5 business days upon PO acceptance)'}
+                  onChange={(e) => recalculateAndSet({ leadTimeDescription: e.target.value })}
+                  className="w-full p-2 bg-gray-50 border border-gray-200 rounded-lg text-xs"
+                >
+                  <option value="Standard Freight Delivery (3-5 business days upon PO acceptance)">Standard Freight Delivery (3-5 business days upon PO acceptance)</option>
+                  <option value="1-3 business days within regional hubs (Davao / Zamboanga)">1-3 business days within regional hubs (Davao / Zamboanga)</option>
+                  <option value="Customer Pickup / Ex-Warehouse (Davao / Zamboanga Hub)">Customer Pickup / Ex-Warehouse (Davao / Zamboanga Hub)</option>
+                  <option value="Expedited Delivery (Subject to carrier availability)">Expedited Delivery (Subject to carrier availability)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-gray-600 font-semibold mb-1">Assigned Commercial Specialist</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={quote.assignedSpecialist || ''}
+                    onChange={(e) => recalculateAndSet({ assignedSpecialist: e.target.value })}
+                    className="flex-1 p-2 bg-gray-50 border border-gray-200 rounded-lg font-medium text-xs"
+                    placeholder="e.g. Sales Specialist / Commercial Engineering"
+                  />
+                  {adminUser?.fullName && (
+                    <button
+                      type="button"
+                      onClick={() => recalculateAndSet({ assignedSpecialist: `${adminUser.fullName} (${adminUser.role === 'super_admin' ? 'Super Admin' : 'Sales Specialist'})` })}
+                      className="px-2.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold rounded-lg text-xs transition-colors shrink-0"
+                    >
+                      Assign to Me
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div>
