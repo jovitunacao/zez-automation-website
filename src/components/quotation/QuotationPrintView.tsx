@@ -28,6 +28,15 @@ export const QuotationPrintView: React.FC<QuotationPrintViewProps> = ({ quotatio
   const { siteSettings } = useApp();
   const [copiedLink, setCopiedLink] = React.useState(false);
 
+  React.useEffect(() => {
+    if (quotation) {
+      document.body.classList.add('print-quotation-modal-open');
+    }
+    return () => {
+      document.body.classList.remove('print-quotation-modal-open');
+    };
+  }, [quotation]);
+
   if (!quotation) return null;
 
   const handlePrint = () => {
@@ -55,8 +64,8 @@ export const QuotationPrintView: React.FC<QuotationPrintViewProps> = ({ quotatio
   });
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 flex items-center justify-center p-2 sm:p-6 no-print">
-      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[94vh] flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 flex items-center justify-center p-2 sm:p-6 quotation-print-modal">
+      <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full max-h-[94vh] flex flex-col overflow-hidden quotation-print-card">
         {/* Top Control Bar (Hidden when printed) */}
         <div className="p-4 bg-[#292F36] text-white flex items-center justify-between no-print border-b border-gray-800">
           <div className="flex items-center gap-2">
@@ -111,7 +120,7 @@ export const QuotationPrintView: React.FC<QuotationPrintViewProps> = ({ quotatio
         </div>
 
         {/* Printable Quotation Document */}
-        <div className="flex-1 overflow-y-auto p-6 sm:p-10 bg-white text-[#292F36] print:p-0">
+        <div className="flex-1 overflow-y-auto p-6 sm:p-10 bg-white text-[#292F36] quotation-print-sheet print:p-0">
           {/* Header & Corporate Letterhead */}
           <div className="flex flex-col sm:flex-row items-start justify-between gap-6 pb-6 border-b-2 border-gray-900">
             <div>
@@ -219,100 +228,102 @@ export const QuotationPrintView: React.FC<QuotationPrintViewProps> = ({ quotatio
             </table>
           </div>
 
-          {/* Pricing Breakdown & Commercial Notes */}
-          <div className="flex flex-col sm:flex-row justify-between gap-6 pt-4 border-t border-gray-200">
-            <div className="text-xs text-gray-600 space-y-1.5 max-w-sm">
-              <p className="font-bold text-gray-900">Special Instructions & Project Scope:</p>
-              <p className="italic text-gray-600 bg-gray-50 p-2.5 rounded border border-gray-200">
-                {quotation.specialInstructions || 'Standard supply and delivery terms. Equipment factory warranty applies.'}
-              </p>
-              {quotation.adminNotes && (
-                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded text-amber-900 text-[11px]">
-                  <strong>Internal Specialist Notes:</strong> {quotation.adminNotes}
+          {/* Pricing Breakdown & Commercial Notes & Signatures */}
+          <div className="print-avoid-break">
+            <div className="flex flex-col sm:flex-row justify-between gap-6 pt-4 border-t border-gray-200">
+              <div className="text-xs text-gray-600 space-y-1.5 max-w-sm">
+                <p className="font-bold text-gray-900">Special Instructions & Project Scope:</p>
+                <p className="italic text-gray-600 bg-gray-50 p-2.5 rounded border border-gray-200">
+                  {quotation.specialInstructions || 'Standard supply and delivery terms. Equipment factory warranty applies.'}
+                </p>
+                {quotation.adminNotes && (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded text-amber-900 text-[11px]">
+                    <strong>Internal Specialist Notes:</strong> {quotation.adminNotes}
+                  </div>
+                )}
+              </div>
+
+              <div className="w-full sm:w-80 space-y-2 text-xs bg-gray-50 p-4 rounded-lg border border-gray-200">
+                <div className="flex justify-between text-gray-600">
+                  <span>Subtotal (Gross):</span>
+                  <span className="font-mono font-semibold">
+                    ₱{quotation.subtotalPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
                 </div>
-              )}
+
+                {quotation.discountAmountPhp > 0 && (
+                  <div className="flex justify-between text-emerald-700">
+                    <span>Special Project Discount:</span>
+                    <span className="font-mono font-semibold">
+                      -₱{quotation.discountAmountPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex justify-between text-gray-600">
+                  <span>Net Amount:</span>
+                  <span className="font-mono font-semibold">
+                    ₱{quotation.netOfVatPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+
+                <div className="flex justify-between text-gray-600">
+                  <span>Value Added Tax (12% EVAT):</span>
+                  <span className="font-mono font-semibold">
+                    {quotation.vatAmountPhp > 0
+                      ? `₱${quotation.vatAmountPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                      : 'Zero-Rated / Exempt'}
+                  </span>
+                </div>
+
+                {quotation.deliveryFeePhp > 0 && (
+                  <div className="flex justify-between text-gray-600">
+                    <span>Freight & Logistics:</span>
+                    <span className="font-mono font-semibold">
+                      ₱{quotation.deliveryFeePhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
+
+                {quotation.installationFeePhp > 0 && (
+                  <div className="flex justify-between text-gray-600">
+                    <span>Installation / Engineering:</span>
+                    <span className="font-mono font-semibold">
+                      ₱{quotation.installationFeePhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                )}
+
+                <div className="pt-2 border-t-2 border-gray-300 flex justify-between text-sm font-extrabold text-[#B5121B]">
+                  <span>Grand Total (PHP):</span>
+                  <span className="font-mono text-base">
+                    ₱{quotation.grandTotalPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
+              </div>
             </div>
 
-            <div className="w-full sm:w-80 space-y-2 text-xs bg-gray-50 p-4 rounded-lg border border-gray-200">
-              <div className="flex justify-between text-gray-600">
-                <span>Subtotal (Gross):</span>
-                <span className="font-mono font-semibold">
-                  ₱{quotation.subtotalPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
+            {/* Standard Terms of Quotation & Signatures */}
+            <div className="mt-6 pt-4 border-t border-gray-200 text-[10.5px] text-gray-500 space-y-2">
+              <h5 className="font-bold text-gray-800 uppercase text-[11px]">Commercial Terms and Conditions</h5>
+              <ol className="list-decimal pl-4 space-y-1">
+                <li><strong>Validity:</strong> This quotation is valid for 30 calendar days from issue date. Beyond this period, prices are subject to confirmation.</li>
+                <li><strong>Payment:</strong> 30 Days Net upon credit approval, or Bank Transfer prior to dispatch for new accounts. Official Receipt / Sales Invoice issued upon payment.</li>
+                <li><strong>Warranty:</strong> All hardware items are brand new, original, and covered by local manufacturer warranty against defects.</li>
+                <li><strong>Logistics:</strong> Delivery through accredited logistics forwarding partners across Luzon, Visayas, and Mindanao.</li>
+              </ol>
 
-              {quotation.discountAmountPhp > 0 && (
-                <div className="flex justify-between text-emerald-700">
-                  <span>Special Project Discount:</span>
-                  <span className="font-mono font-semibold">
-                    -₱{quotation.discountAmountPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
+              <div className="grid grid-cols-2 gap-12 pt-8 mt-4">
+                <div className="border-t border-gray-400 pt-2 text-center">
+                  <p className="font-bold text-gray-900 text-xs">{quotation.assignedSpecialist || 'ZEZ Automation Corporation'}</p>
+                  <p className="text-[10px] text-gray-500">Authorized Corporate Sales Specialist</p>
+                  <p className="text-[10px] text-gray-400 font-mono">Date: {formattedDate}</p>
                 </div>
-              )}
-
-              <div className="flex justify-between text-gray-600">
-                <span>Net Amount:</span>
-                <span className="font-mono font-semibold">
-                  ₱{quotation.netOfVatPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-
-              <div className="flex justify-between text-gray-600">
-                <span>Value Added Tax (12% EVAT):</span>
-                <span className="font-mono font-semibold">
-                  {quotation.vatAmountPhp > 0
-                    ? `₱${quotation.vatAmountPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                    : 'Zero-Rated / Exempt'}
-                </span>
-              </div>
-
-              {quotation.deliveryFeePhp > 0 && (
-                <div className="flex justify-between text-gray-600">
-                  <span>Freight & Logistics:</span>
-                  <span className="font-mono font-semibold">
-                    ₱{quotation.deliveryFeePhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
+                <div className="border-t border-gray-400 pt-2 text-center">
+                  <p className="font-bold text-gray-900 text-xs">{quotation.customerCompanyName || quotation.customerFullName}</p>
+                  <p className="text-[10px] text-gray-500">Conforme / Authorized Client Signatory</p>
+                  <p className="text-[10px] text-gray-400 font-mono">Date: ________________________</p>
                 </div>
-              )}
-
-              {quotation.installationFeePhp > 0 && (
-                <div className="flex justify-between text-gray-600">
-                  <span>Installation / Engineering:</span>
-                  <span className="font-mono font-semibold">
-                    ₱{quotation.installationFeePhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </span>
-                </div>
-              )}
-
-              <div className="pt-2 border-t-2 border-gray-300 flex justify-between text-sm font-extrabold text-[#B5121B]">
-                <span>Grand Total (PHP):</span>
-                <span className="font-mono text-base">
-                  ₱{quotation.grandTotalPhp.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Standard Terms of Quotation & Signatures */}
-          <div className="mt-8 pt-6 border-t border-gray-200 text-[10.5px] text-gray-500 space-y-2">
-            <h5 className="font-bold text-gray-800 uppercase text-[11px]">Commercial Terms and Conditions</h5>
-            <ol className="list-decimal pl-4 space-y-1">
-              <li><strong>Validity:</strong> This quotation is valid for 30 calendar days from issue date. Beyond this period, prices are subject to confirmation.</li>
-              <li><strong>Payment:</strong> 30 Days Net upon credit approval, or Bank Transfer prior to dispatch for new accounts. Official Receipt / Sales Invoice issued upon payment.</li>
-              <li><strong>Warranty:</strong> All hardware items are brand new, original, and covered by local manufacturer warranty against defects.</li>
-              <li><strong>Logistics:</strong> Delivery through accredited logistics forwarding partners across Luzon, Visayas, and Mindanao.</li>
-            </ol>
-
-            <div className="grid grid-cols-2 gap-12 pt-10 mt-6">
-              <div className="border-t border-gray-400 pt-2 text-center">
-                <p className="font-bold text-gray-900 text-xs">{quotation.assignedSpecialist || 'ZEZ Automation Corporation'}</p>
-                <p className="text-[10px] text-gray-500">Authorized Corporate Sales Specialist</p>
-                <p className="text-[10px] text-gray-400 font-mono">Date: {formattedDate}</p>
-              </div>
-              <div className="border-t border-gray-400 pt-2 text-center">
-                <p className="font-bold text-gray-900 text-xs">{quotation.customerCompanyName || quotation.customerFullName}</p>
-                <p className="text-[10px] text-gray-500">Conforme / Authorized Client Signatory</p>
-                <p className="text-[10px] text-gray-400 font-mono">Date: ________________________</p>
               </div>
             </div>
           </div>

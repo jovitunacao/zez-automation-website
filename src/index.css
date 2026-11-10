@@ -33,14 +33,120 @@ body {
 }
 
 @media print {
-  .no-print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 12mm 12mm 12mm;
+  }
+
+  /* Hide screen controls, standard page chrome, and non-print UI */
+  .no-print,
+  body.print-rfq-modal-open header,
+  body.print-rfq-modal-open footer,
+  body.print-rfq-modal-open main,
+  body.print-rfq-modal-open aside,
+  body.print-rfq-modal-open nav,
+  body.print-quotation-modal-open header,
+  body.print-quotation-modal-open footer,
+  body.print-quotation-modal-open main,
+  body.print-quotation-modal-open aside,
+  body.print-quotation-modal-open nav,
+  body:has(.rfq-print-modal) header,
+  body:has(.rfq-print-modal) footer,
+  body:has(.rfq-print-modal) main,
+  body:has(.rfq-print-modal) aside,
+  body:has(.rfq-print-modal) nav,
+  body:has(.quotation-print-modal) header,
+  body:has(.quotation-print-modal) footer,
+  body:has(.quotation-print-modal) main,
+  body:has(.quotation-print-modal) aside,
+  body:has(.quotation-print-modal) nav {
     display: none !important;
   }
+
   .print-only {
     display: block !important;
   }
-  body {
-    background: white !important;
-    color: black !important;
+
+  /* Reset document root for full-page A4 printing */
+  html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #111827 !important;
+    font-size: 11pt !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: auto !important;
+  }
+
+  /* Reset modal containers to plain flow document */
+  .rfq-print-modal,
+  .quotation-print-modal {
+    position: static !important;
+    inset: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    display: block !important;
+  }
+
+  .rfq-print-card,
+  .quotation-print-card {
+    position: static !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+    background: #ffffff !important;
+  }
+
+  .rfq-print-sheet,
+  .quotation-print-sheet {
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+    max-height: none !important;
+    height: auto !important;
+    width: 100% !important;
+  }
+
+  /* Table and section page-break rules */
+  .print-avoid-break {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+
+  table {
+    page-break-inside: auto;
+    width: 100% !important;
+  }
+
+  thead {
+    display: table-header-group !important;
+  }
+
+  tfoot {
+    display: table-footer-group !important;
+  }
+
+  tr {
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
   }
 }
+
