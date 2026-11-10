@@ -1762,7 +1762,8 @@ export const AdminDashboardView: React.FC = () => {
                     'Accepted': 'bg-emerald-100 text-emerald-800 border-emerald-300',
                     'Declined': 'bg-rose-100 text-rose-800 border-rose-300',
                     'Expired': 'bg-gray-200 text-gray-600 border-gray-400',
-                    'Cancelled': 'bg-gray-100 text-gray-400 border-gray-200'
+                    'Cancelled': 'bg-gray-100 text-gray-400 border-gray-200',
+                    'Under Review': 'bg-purple-100 text-purple-800 border-purple-300'
                   };
 
                   return (

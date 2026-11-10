@@ -223,7 +223,8 @@ export type QuotationStatus =
   | 'Accepted' 
   | 'Declined' 
   | 'Expired' 
-  | 'Cancelled';
+  | 'Cancelled'
+  | 'Under Review';
 
 export type VatType = 
   | 'vat_inclusive_12' 

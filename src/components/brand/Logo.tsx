@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 interface LogoProps {
   className?: string;
@@ -14,87 +14,99 @@ export const Logo: React.FC<LogoProps> = ({
   size = 'md'
 }) => {
   const isDarkBg = variant === 'dark';
+  const [imageError, setImageError] = useState(false);
 
+  // Height mappings matching the 3:2 ratio of the official 1536x1024 3D emblem
   const sizeClasses = {
-    sm: 'h-8',
-    md: 'h-10',
-    lg: 'h-12',
-    xl: 'h-16'
+    sm: 'h-8 sm:h-9',
+    md: 'h-11 sm:h-12',
+    lg: 'h-14 sm:h-16',
+    xl: 'h-20 sm:h-24'
   };
 
+  const logoSrc = '/assets/aistudio/IMG_9224_d9a72974.jpeg';
+
   return (
-    <div className={`inline-flex items-center gap-3 select-none ${className}`}>
-      {/* Precision Geometric SVG Symbol */}
-      <svg
-        className={`${sizeClasses[size]} w-auto aspect-[1.1/1] transition-transform duration-200 hover:scale-105`}
-        viewBox="0 0 120 110"
-        fill="none"
-        xmlns="http://www.w3.org/2000/svg"
+    <div className={`inline-flex items-center gap-2.5 sm:gap-3 select-none ${className}`}>
+      {/* Official 3D ZEZ Automation Corporation Emblem */}
+      <div
+        className={`relative inline-flex items-center justify-center shrink-0 transition-transform duration-200 hover:scale-[1.02] ${
+          isDarkBg
+            ? 'bg-white rounded-xl p-1.5 shadow-sm border border-white/20'
+            : 'rounded-lg p-0.5'
+        }`}
       >
-        <defs>
-          <linearGradient id="zezRedGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#B5121B" />
-            <stop offset="100%" stopColor="#8F1018" />
-          </linearGradient>
-          <linearGradient id="zezDarkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#292F36" />
-            <stop offset="100%" stopColor="#1E2228" />
-          </linearGradient>
-        </defs>
-
-        {/* Outer Hexagonal Shield / Tech Node Frame */}
-        <polygon
-          points="60,6 108,32 108,82 60,104 12,82 12,32"
-          fill={isDarkBg ? '#1E232A' : '#F4F5F7'}
-          stroke={isDarkBg ? '#B5121B' : '#B5121B'}
-          strokeWidth="3.5"
-          strokeLinejoin="round"
-        />
-
-        {/* Red Tech Forward Arrow / Stylized Z Crest */}
-        <path
-          d="M32 32 H88 L46 60 H88 M46 60 L32 80 H88"
-          stroke="url(#zezRedGrad)"
-          strokeWidth="10"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-
-        {/* Center Automation Precision Pulse Dot */}
-        <circle cx="60" cy="55" r="4.5" fill="#FFFFFF" />
-        <circle cx="60" cy="55" r="7.5" stroke="#B5121B" strokeWidth="2.5" />
-
-        {/* Top & Bottom Precision Pins */}
-        <rect x="57" y="10" width="6" height="8" rx="2" fill="#B5121B" />
-        <rect x="57" y="92" width="6" height="8" rx="2" fill="#B5121B" />
-      </svg>
-
-      {/* Typography Wordmark */}
-      <div className="flex flex-col justify-center">
-        <div className="flex items-baseline tracking-tight font-extrabold leading-none">
-          <span className="text-[#B5121B] text-2xl font-black tracking-widest font-sans">
-            ZEZ
-          </span>
-          <span className="ml-1.5 text-xs font-bold tracking-widest uppercase py-0.5 px-1.5 rounded bg-[#B5121B]/10 text-[#B5121B]">
-            ICT
-          </span>
-        </div>
-
-        {showSubtitle && (
-          <div className="flex flex-col mt-1">
-            <span
-              className={`text-[9px] font-bold tracking-[0.22em] uppercase leading-tight ${
-                isDarkBg ? 'text-gray-300' : 'text-[#292F36]'
-              }`}
+        {!imageError ? (
+          <img
+            src={logoSrc}
+            alt="ZEZ Automation Corporation"
+            className={`${sizeClasses[size]} w-auto object-contain ${!isDarkBg ? 'mix-blend-multiply' : ''}`}
+            loading="eager"
+            onError={() => setImageError(true)}
+          />
+        ) : (
+          /* High-fidelity fallback vector if image asset is unavailable */
+          <div className="flex items-center gap-2">
+            <svg
+              className={`${sizeClasses[size]} w-auto aspect-[1.1/1]`}
+              viewBox="0 0 120 110"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
             >
-              AUTOMATION CORPORATION
-            </span>
-            <span className="text-[7.5px] font-medium tracking-[0.14em] text-[#5E646D] uppercase">
-              Technology Supplies & Systems Distributor
-            </span>
+              <defs>
+                <linearGradient id="zezRedGradFallback" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop offset="0%" stopColor="#B5121B" />
+                  <stop offset="100%" stopColor="#8F1018" />
+                </linearGradient>
+              </defs>
+              <polygon
+                points="60,6 108,32 108,82 60,104 12,82 12,32"
+                fill={isDarkBg ? '#1E232A' : '#F4F5F7'}
+                stroke="#B5121B"
+                strokeWidth="3.5"
+                strokeLinejoin="round"
+              />
+              <path
+                d="M32 32 H88 L46 60 H88 M46 60 L32 80 H88"
+                stroke="url(#zezRedGradFallback)"
+                strokeWidth="10"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <span className="font-black text-[#B5121B] text-xl tracking-wider">ZEZ</span>
           </div>
         )}
       </div>
+
+      {/* Supplementary Corporate Subtitle on larger viewports */}
+      {showSubtitle && (
+        <div
+          className={`hidden sm:flex flex-col justify-center border-l pl-2.5 ${
+            isDarkBg ? 'border-gray-700 text-gray-200' : 'border-gray-200 text-[#292F36]'
+          }`}
+        >
+          <div className="flex items-center gap-1.5 leading-none">
+            <span
+              className={`text-[10px] font-extrabold tracking-[0.16em] uppercase font-sans ${
+                isDarkBg ? 'text-white' : 'text-[#292F36]'
+              }`}
+            >
+              ICT DISTRIBUTION
+            </span>
+            <span className="text-[8.5px] font-bold tracking-wider uppercase py-0.5 px-1 rounded bg-[#B5121B] text-white">
+              B2B
+            </span>
+          </div>
+          <span
+            className={`text-[8px] font-medium tracking-[0.08em] uppercase mt-1 ${
+              isDarkBg ? 'text-gray-400' : 'text-[#5E646D]'
+            }`}
+          >
+            Engineering & Infrastructure Solutions
+          </span>
+        </div>
+      )}
     </div>
   );
 };

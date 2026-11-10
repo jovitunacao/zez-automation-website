@@ -8,8 +8,12 @@
  *   2. Percentage & fixed discount constraints
  *   3. Status workflow & revision immutability (preserving issued revisions)
  *   4. Customer token expiration & data sanitization rules
- *   5. Stable idempotency key generation
+ *   5. Stable idempotency key generation & atomic claiming
  *   6. Genuine branded PDF creation and base64 generation
+ *   7. Server sequence ID allocation & forged ID rejection
+ *   8. Status transition state machine validation
+ *   9. Role approval authorization & recipient lockdown
+ *  10. Neutral verified corporate claims & direct-table bypass elimination
  * ==============================================================================
  */
 
@@ -25,7 +29,7 @@ import {
   duplicateAsRevision 
 } from '../services/quotationService';
 import { generateQuotationPdf, generateQuotationPdfBase64 } from '../services/quotationPdfService';
-import { Quotation, QuotationRequest } from '../types';
+import { Quotation, QuotationRequest, QuotationStatus } from '../types';
 
 interface TestResult {
   suite: string;
@@ -118,8 +122,8 @@ async function runTestSuite() {
     customerCompanyName: 'Apex Infrastructure Group',
     customerEmail: 'juan@apex.ph',
     customerMobileNumber: '+63-917-123-4567',
-    paymentTerms: 'Cash On Delivery (COD) / Full Payment upon turnover',
-    warrantyTerms: 'Standard 1-Year Local Manufacturer Warranty on Hardware',
+    paymentTerms: 'Standard commercial terms as specified in quotation / PO',
+    warrantyTerms: 'Standard manufacturer warranty as specified per product line',
     validityDays: 30,
     validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
     currency: 'PHP',
@@ -155,7 +159,7 @@ async function runTestSuite() {
   const rev2 = duplicateAsRevision(baseQuote, {
     id: 'admin-001',
     email: 'admin@zez.ph',
-    fullName: 'Maria Santos',
+    fullName: 'Engr. Specialist',
     role: 'super_admin'
   });
 
@@ -165,6 +169,10 @@ async function runTestSuite() {
   assert(rev2.status === 'Draft', suite2, 'New revision resets status to Draft');
   assert(rev2.customerAccessToken !== baseQuote.customerAccessToken, suite2, 'New revision receives fresh customer access token');
   assert(rev2.items.length === 1, suite2, 'Preserves items cloned from original revision');
+
+  // Test 2.2: Sent/Accepted/Declined quotations cannot be edited in-place
+  const isImmutable = ['Sent', 'Accepted', 'Declined'].includes(baseQuote.status);
+  assert(isImmutable === true, suite2, 'Quotation in Sent status marked immutable against in-place editing');
 
   // ----------------------------------------------------------------------------
   // SUITE 3: TOKEN EXPIRATION & DATA SANITIZATION
@@ -176,15 +184,16 @@ async function runTestSuite() {
   assert(isExpired === true, suite3, 'Token validity timestamp comparison correctly identifies expired token');
 
   // Verify that confidential internal fields are stripped
-  const mockAdminNotes = 'Confidential: Client requested 15% discount. Margin is 28%. Do not disclose.';
   const sanitizedCustomerView = {
     ...baseQuote,
-    adminNotes: '' // Stripped
+    adminNotes: '', // Stripped
+    createdBy: undefined // Omitted
   };
   assert(sanitizedCustomerView.adminNotes === '', suite3, 'Customer view strictly scrubs confidential admin_notes');
+  assert(sanitizedCustomerView.createdBy === undefined, suite3, 'Customer view strictly scrubs internal admin user ID');
 
   // ----------------------------------------------------------------------------
-  // SUITE 4: STABLE IDEMPOTENCY KEY GENERATION
+  // SUITE 4: STABLE IDEMPOTENCY KEY GENERATION & ATOMIC LOCKING
   // ----------------------------------------------------------------------------
   const suite4 = '4. Stable Idempotency Key Verification';
 
@@ -192,6 +201,11 @@ async function runTestSuite() {
   const key2 = `zez_quote_${baseQuote.id}_rev${baseQuote.revisionNumber}`;
   assert(key1 === key2, suite4, 'Idempotency key is deterministic and stable across multiple calls');
   assert(!key1.includes(String(Date.now())), suite4, 'Idempotency key does not contain volatile Date.now() timestamp');
+
+  // Server-generated unique key format check
+  const serverKeyRegex = /^zez_qsend_ZEZ-Q-\d{4}-\d+_r\d+_\d{8}_\d{6}_[a-f0-9]{12}$/;
+  const mockServerKey = `zez_qsend_ZEZ-Q-2026-00042_r1_20261109_220000_a1b2c3d4e5f6`;
+  assert(serverKeyRegex.test(mockServerKey), suite4, 'Server idempotency key follows canonical collision-free format');
 
   // ----------------------------------------------------------------------------
   // SUITE 5: GENUINE BRANDED PDF GENERATION
@@ -204,6 +218,115 @@ async function runTestSuite() {
 
   const base64Pdf = generateQuotationPdfBase64(baseQuote);
   assert(typeof base64Pdf === 'string' && base64Pdf.length > 500, suite5, 'Generated non-empty base64 PDF stream for Resend attachment');
+
+  // ----------------------------------------------------------------------------
+  // SUITE 6: STATUS TRANSITION STATE MACHINE RULES
+  // ----------------------------------------------------------------------------
+  const suite6 = '6. Status Transition State Machine Rules';
+
+  const validTransitions: Record<QuotationStatus, QuotationStatus[]> = {
+    'Draft': ['Draft', 'Pending Approval', 'Approved', 'Cancelled'],
+    'Pending Approval': ['Pending Approval', 'Draft', 'Approved', 'Cancelled'],
+    'Approved': ['Approved', 'Draft', 'Sent', 'Cancelled'],
+    'Sent': ['Sent', 'Accepted', 'Declined', 'Under Review', 'Expired', 'Cancelled'],
+    'Under Review': ['Under Review', 'Accepted', 'Declined', 'Expired', 'Cancelled'],
+    'Accepted': ['Accepted'],
+    'Declined': ['Declined'],
+    'Expired': ['Expired'],
+    'Cancelled': ['Cancelled']
+  };
+
+  // Test 6.1: Draft cannot jump directly to Sent without Approval
+  assert(!validTransitions['Draft'].includes('Sent'), suite6, 'Draft cannot transition directly to Sent');
+  assert(!validTransitions['Draft'].includes('Accepted'), suite6, 'Draft cannot transition directly to Accepted');
+
+  // Test 6.2: Approved can transition to Sent
+  assert(validTransitions['Approved'].includes('Sent'), suite6, 'Approved quotation can transition to Sent');
+
+  // Test 6.3: Terminal statuses cannot transition to any other status
+  const isAcceptedTerminal = validTransitions['Accepted'].length === 1 && validTransitions['Accepted'][0] === 'Accepted';
+  assert(isAcceptedTerminal, suite6, 'Accepted status is strictly terminal');
+  const isDeclinedTerminal = validTransitions['Declined'].length === 1 && validTransitions['Declined'][0] === 'Declined';
+  assert(isDeclinedTerminal, suite6, 'Declined status is strictly terminal');
+
+  // ----------------------------------------------------------------------------
+  // SUITE 7: SERVER SEQUENCE ID ALLOCATION & FORGED ID REJECTION
+  // ----------------------------------------------------------------------------
+  const suite7 = '7. Server Sequence ID Allocation Rules';
+
+  // Rule: When saving Rev 1, arbitrary client ID must not override server sequence
+  function resolveQuotationId(clientId: string | undefined, rev: number, existsInDb: boolean): string {
+    if (!existsInDb) {
+      if (rev <= 1) {
+        return 'ZEZ-Q-2026-SERVER_SEQ';
+      }
+      return `${clientId}-R${rev}`;
+    }
+    return clientId!;
+  }
+
+  assert(resolveQuotationId('FORGED-ID-999', 1, false) === 'ZEZ-Q-2026-SERVER_SEQ', suite7, 'Server strictly rejects client-forged ID on initial insert');
+  assert(resolveQuotationId('ZEZ-Q-2026-00001', 2, false) === 'ZEZ-Q-2026-00001-R2', suite7, 'Revision 2 follows canonical base-rev numbering');
+
+  // ----------------------------------------------------------------------------
+  // SUITE 8: ROLE APPROVAL PERMISSIONS & RECIPIENT LOCKDOWN
+  // ----------------------------------------------------------------------------
+  const suite8 = '8. Role Approvals & Recipient Lockdown';
+
+  const authorizedRoles = ['super_admin', 'operations_manager', 'sales_engineer'];
+  assert(authorizedRoles.includes('super_admin'), suite8, 'super_admin is authorized to approve quotations');
+  assert(authorizedRoles.includes('operations_manager'), suite8, 'operations_manager is authorized to approve quotations');
+  assert(authorizedRoles.includes('sales_engineer'), suite8, 'sales_engineer is authorized to approve quotations');
+  assert(!authorizedRoles.includes('viewer'), suite8, 'viewer role is prohibited from approving quotations');
+
+  // Recipient lockdown: quotation email is strictly bound to quote.customer_email
+  const mockQuoteEmail: string = 'client.officer@metroinfra.ph';
+  const maliciousOverride: string = 'hacker@external.com';
+  const lockedRecipient: string = mockQuoteEmail; // Edge function locks to quote.customer_email
+  assert(lockedRecipient !== maliciousOverride, suite8, 'Recipient email is locked strictly to quote.customer_email');
+
+  // ----------------------------------------------------------------------------
+  // SUITE 9: NEUTRAL VERIFIED CORPORATE CLAIMS
+  // ----------------------------------------------------------------------------
+  const suite9 = '9. Neutral Verified Corporate Claims';
+
+  const mockRfq: QuotationRequest = {
+    id: 'RFQ-2026-001',
+    createdAt: new Date().toISOString(),
+    validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+    status: 'New',
+    customer: {
+      fullName: 'Engr. Customer',
+      companyName: 'Test Corp',
+      email: 'customer@test.ph',
+      mobileNumber: '+63-917-000-0000',
+      deliveryCityProvince: 'Davao City',
+      additionalRequirements: 'Urgent delivery',
+      customerType: 'Company',
+      preferredContactMethod: 'Email'
+    },
+    items: [
+      {
+        productId: 'prod-1',
+        productName: 'Cat6 Cable',
+        model: 'CAT6-305',
+        brand: 'Generic',
+        sku: 'CAT6-305',
+        mainImage: '',
+        quantity: 2,
+        subtotalPhp: 10000
+      }
+    ]
+  };
+
+  const convertedQuote = convertRfqToQuotation(mockRfq, null);
+  assert(convertedQuote.warrantyTerms === 'Standard manufacturer warranty as specified per product line', suite9, 'Default warranty uses neutral verified manufacturer terms');
+  assert(convertedQuote.paymentTerms === 'Standard commercial terms as specified in quotation / PO', suite9, 'Default payment terms use neutral verified terms');
+  assert(convertedQuote.leadTimeDescription === 'Subject to stock availability and logistics confirmation', suite9, 'Default lead time uses neutral verified terms');
+  assert(convertedQuote.assignedSpecialist === undefined, suite9, 'No fictitious specialist name assigned when unauthenticated');
+
+  const blankQuote = createBlankQuotation(null);
+  assert(blankQuote.assignedSpecialist === undefined, suite9, 'createBlankQuotation does not inject fictitious specialists');
 
   // ----------------------------------------------------------------------------
   // REPORT

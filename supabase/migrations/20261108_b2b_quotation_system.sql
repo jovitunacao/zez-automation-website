@@ -56,16 +56,16 @@ CREATE TABLE IF NOT EXISTS public.quotations (
     delivery_address TEXT,
     tin_number TEXT,
     
-    -- Commercial Terms (Configurable Approved Terms)
-    payment_terms TEXT NOT NULL DEFAULT 'Cash On Delivery (COD) / Full Payment upon turnover',
-    warranty_terms TEXT NOT NULL DEFAULT 'Standard 1-Year Local Manufacturer Warranty on Hardware',
+    -- Commercial Terms (Configurable Approved Terms - Neutral Verified Defaults)
+    payment_terms TEXT NOT NULL DEFAULT 'Standard commercial terms as specified in quotation / PO',
+    warranty_terms TEXT NOT NULL DEFAULT 'Standard manufacturer warranty as specified per product line',
     validity_days INT NOT NULL DEFAULT 30,
     valid_until TIMESTAMPTZ NOT NULL,
     currency VARCHAR(10) NOT NULL DEFAULT 'PHP',
-    lead_time_description TEXT DEFAULT 'Standard Freight Delivery (3-5 business days upon PO acceptance)',
+    lead_time_description TEXT DEFAULT 'Subject to stock availability and logistics confirmation',
     special_instructions TEXT,
     admin_notes TEXT, -- Confidential internal staff remarks
-    assigned_specialist TEXT, -- Dynamic assigned specialist
+    assigned_specialist TEXT, -- Dynamic assigned specialist (no hardcoded claims)
     
     -- Pricing Breakdown (Decimal-Safe Exact Numeric)
     subtotal_php NUMERIC(14,2) NOT NULL DEFAULT 0,
@@ -214,6 +214,9 @@ WITH CHECK (true);
 --  - Server-side atomic sequence number allocation
 --  - Transactional replacement of line items
 --  - Immutable audit trail
+--  - Server-side atomic ID allocation (never client-generated)
+--  - Status transition state machine validation
+--  - Approval role enforcement (super_admin, operations_manager, sales_engineer)
 CREATE OR REPLACE FUNCTION public.save_official_quotation(
     p_quote JSONB,
     p_items JSONB,
@@ -234,6 +237,7 @@ DECLARE
     v_is_admin BOOLEAN;
     v_now TIMESTAMPTZ := NOW();
     v_item JSONB;
+    v_actor_role TEXT;
 BEGIN
     -- Verify caller authorization
     v_is_admin := public.is_admin();
@@ -244,23 +248,73 @@ BEGIN
     v_id := p_quote->>'id';
     v_status := COALESCE(p_quote->>'status', 'Draft');
     v_rev := COALESCE((p_quote->>'revision_number')::INT, 1);
-    v_base_id := COALESCE(p_quote->>'base_quotation_id', v_id);
+    v_base_id := p_quote->>'base_quotation_id';
 
-    -- Check if new ID allocation is required
-    IF v_id IS NULL OR v_id = '' OR v_id LIKE 'TEMP-%' OR v_id LIKE 'DRAFT-%' THEN
-        v_id := public.generate_quotation_number();
-        v_base_id := v_id;
-    END IF;
-
-    -- Check if record already exists and is immutable
+    -- Check if record already exists in database
     SELECT * INTO v_existing FROM public.quotations WHERE id = v_id;
-    IF FOUND THEN
-        -- If already issued, line items and financial terms cannot be modified in-place
-        IF v_existing.status IN ('Sent', 'Accepted', 'Declined') AND p_audit_action NOT LIKE 'Status update%' AND p_audit_action NOT LIKE 'Customer%' THEN
+
+    IF NOT FOUND THEN
+        -- New quotation record being created: enforce server-assigned sequence number
+        IF v_rev <= 1 THEN
+            v_id := public.generate_quotation_number();
+            v_base_id := v_id;
+        ELSE
+            -- Revisions > 1 must have an existing base quotation
+            IF v_base_id IS NULL OR NOT EXISTS (SELECT 1 FROM public.quotations WHERE id = v_base_id) THEN
+                RETURN jsonb_build_object(
+                    'success', false,
+                    'error', 'Invalid revision: Base quotation ' || COALESCE(v_base_id, 'NULL') || ' does not exist in system.'
+                );
+            END IF;
+            -- Canonical revision format: {base_id}-R{rev}
+            v_id := v_base_id || '-R' || v_rev::TEXT;
+        END IF;
+    ELSE
+        -- Updating existing quotation
+        v_base_id := COALESCE(v_existing.base_quotation_id, v_existing.id);
+        v_rev := v_existing.revision_number;
+
+        -- 1. Status Transition State Machine Validation
+        IF v_existing.status IN ('Accepted', 'Declined', 'Expired', 'Cancelled') AND v_status != v_existing.status THEN
             RETURN jsonb_build_object(
                 'success', false,
-                'error', 'Quotation ' || v_id || ' is in immutable status (' || v_existing.status || '). Issued commercial quotations cannot be modified. Create a new revision (e.g. Rev ' || (v_existing.revision_number + 1)::TEXT || ') to make amendments.'
+                'error', 'Quotation ' || v_id || ' is in terminal status (' || v_existing.status || ') and cannot be transitioned to ' || v_status || '. Please create a new revision to make updates.'
             );
+        END IF;
+
+        IF v_existing.status = 'Draft' AND v_status NOT IN ('Draft', 'Pending Approval', 'Approved', 'Cancelled') THEN
+            RETURN jsonb_build_object('success', false, 'error', 'Invalid transition from Draft to ' || v_status || '. Drafts must move to Pending Approval, Approved, or Cancelled.');
+        ELSIF v_existing.status = 'Pending Approval' AND v_status NOT IN ('Pending Approval', 'Draft', 'Approved', 'Cancelled') THEN
+            RETURN jsonb_build_object('success', false, 'error', 'Invalid transition from Pending Approval to ' || v_status || '.');
+        ELSIF v_existing.status = 'Approved' AND v_status NOT IN ('Approved', 'Draft', 'Sent', 'Cancelled') THEN
+            RETURN jsonb_build_object('success', false, 'error', 'Invalid transition from Approved to ' || v_status || '. Approved quotations may only transition to Sent, Draft, or Cancelled.');
+        ELSIF v_existing.status = 'Sent' AND v_status NOT IN ('Sent', 'Accepted', 'Declined', 'Under Review', 'Expired', 'Cancelled') THEN
+            RETURN jsonb_build_object('success', false, 'error', 'Invalid transition from Sent to ' || v_status || '.');
+        ELSIF v_existing.status = 'Under Review' AND v_status NOT IN ('Under Review', 'Accepted', 'Declined', 'Expired', 'Cancelled') THEN
+            RETURN jsonb_build_object('success', false, 'error', 'Invalid transition from Under Review to ' || v_status || '.');
+        END IF;
+
+        -- 2. Immutability Check: Issued commercial quotations cannot be modified in-place
+        IF v_existing.status IN ('Sent', 'Accepted', 'Declined') THEN
+            IF p_audit_action NOT LIKE 'Status update%' AND p_audit_action NOT LIKE 'Customer%' AND p_audit_action NOT LIKE 'Quotation Dispatched%' THEN
+                RETURN jsonb_build_object(
+                    'success', false,
+                    'error', 'Quotation ' || v_id || ' is in immutable status (' || v_existing.status || '). Issued commercial quotations cannot be modified. Create a new revision (e.g. Rev ' || (v_existing.revision_number + 1)::TEXT || ') to make amendments.'
+                );
+            END IF;
+        END IF;
+    END IF;
+
+    -- 3. Enforce Approval Role in PostgreSQL
+    IF v_status = 'Approved' AND (v_existing IS NULL OR v_existing.status != 'Approved') THEN
+        IF current_user != 'service_role' AND auth.uid() IS NOT NULL THEN
+            SELECT role INTO v_actor_role FROM public.administrator_users WHERE id = auth.uid() AND is_active = true;
+            IF v_actor_role IS NULL OR v_actor_role NOT IN ('super_admin', 'operations_manager', 'sales_engineer') THEN
+                RETURN jsonb_build_object(
+                    'success', false,
+                    'error', 'Forbidden: Approving quotations requires super_admin, operations_manager, or sales_engineer role.'
+                );
+            END IF;
         END IF;
     END IF;
 
@@ -320,12 +374,12 @@ BEGIN
         p_quote->>'delivery_city_province',
         p_quote->>'delivery_address',
         p_quote->>'tin_number',
-        COALESCE(p_quote->>'payment_terms', 'Cash On Delivery (COD) / Full Payment upon turnover'),
-        COALESCE(p_quote->>'warranty_terms', 'Standard 1-Year Local Manufacturer Warranty on Hardware'),
+        COALESCE(p_quote->>'payment_terms', 'Standard commercial terms as specified in quotation / PO'),
+        COALESCE(p_quote->>'warranty_terms', 'Standard manufacturer warranty as specified per product line'),
         COALESCE((p_quote->>'validity_days')::INT, 30),
         COALESCE((p_quote->>'valid_until')::TIMESTAMPTZ, v_now + INTERVAL '30 days'),
         COALESCE(p_quote->>'currency', 'PHP'),
-        p_quote->>'lead_time_description',
+        COALESCE(p_quote->>'lead_time_description', 'Subject to stock availability and logistics confirmation'),
         p_quote->>'special_instructions',
         p_quote->>'admin_notes',
         p_quote->>'assigned_specialist',
@@ -389,44 +443,46 @@ BEGIN
         sent_to_email = COALESCE(EXCLUDED.sent_to_email, public.quotations.sent_to_email),
         updated_at = v_now;
 
-    -- Replace line items transactionally
-    DELETE FROM public.quotation_line_items WHERE quotation_id = v_id;
+    -- Replace line items ONLY if not in an issued/immutable status
+    IF v_existing IS NULL OR v_existing.status NOT IN ('Sent', 'Accepted', 'Declined') THEN
+        DELETE FROM public.quotation_line_items WHERE quotation_id = v_id;
 
-    IF p_items IS NOT NULL AND jsonb_array_length(p_items) > 0 THEN
-        FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
-        LOOP
-            INSERT INTO public.quotation_line_items (
-                quotation_id,
-                product_id,
-                sku,
-                product_name,
-                model,
-                brand,
-                quantity,
-                unit_price_php,
-                discount_percent,
-                line_total_php,
-                lead_time,
-                warranty,
-                notes,
-                sort_order
-            ) VALUES (
-                v_id,
-                v_item->>'product_id',
-                v_item->>'sku',
-                COALESCE(v_item->>'product_name', 'Item'),
-                v_item->>'model',
-                v_item->>'brand',
-                COALESCE((v_item->>'quantity')::INT, 1),
-                COALESCE((v_item->>'unit_price_php')::NUMERIC, 0),
-                COALESCE((v_item->>'discount_percent')::NUMERIC, 0),
-                COALESCE((v_item->>'line_total_php')::NUMERIC, 0),
-                v_item->>'lead_time',
-                v_item->>'warranty',
-                v_item->>'notes',
-                COALESCE((v_item->>'sort_order')::INT, 0)
-            );
-        END LOOP;
+        IF p_items IS NOT NULL AND jsonb_array_length(p_items) > 0 THEN
+            FOR v_item IN SELECT * FROM jsonb_array_elements(p_items)
+            LOOP
+                INSERT INTO public.quotation_line_items (
+                    quotation_id,
+                    product_id,
+                    sku,
+                    product_name,
+                    model,
+                    brand,
+                    quantity,
+                    unit_price_php,
+                    discount_percent,
+                    line_total_php,
+                    lead_time,
+                    warranty,
+                    notes,
+                    sort_order
+                ) VALUES (
+                    v_id,
+                    v_item->>'product_id',
+                    v_item->>'sku',
+                    COALESCE(v_item->>'product_name', 'Item'),
+                    v_item->>'model',
+                    v_item->>'brand',
+                    COALESCE((v_item->>'quantity')::INT, 1),
+                    COALESCE((v_item->>'unit_price_php')::NUMERIC, 0),
+                    COALESCE((v_item->>'discount_percent')::NUMERIC, 0),
+                    COALESCE((v_item->>'line_total_php')::NUMERIC, 0),
+                    v_item->>'lead_time',
+                    v_item->>'warranty',
+                    v_item->>'notes',
+                    COALESCE((v_item->>'sort_order')::INT, 0)
+                );
+            END LOOP;
+        END IF;
     END IF;
 
     -- Record Audit Log entry
@@ -450,6 +506,7 @@ BEGIN
     RETURN jsonb_build_object(
         'success', true,
         'id', v_id,
+        'base_quotation_id', v_base_id,
         'revision_number', v_rev,
         'status', v_status
     );
@@ -457,6 +514,177 @@ END;
 $$;
 
 GRANT EXECUTE ON FUNCTION public.save_official_quotation(JSONB, JSONB, TEXT, TEXT) TO authenticated, service_role;
+
+-- 6.1 ATOMIC EMAIL-SEND CLAIMING PROCEDURE
+-- Prevents duplicate sends under concurrent admin requests via FOR UPDATE row locking.
+-- Generates collision-free server idempotency key.
+CREATE OR REPLACE FUNCTION public.claim_quotation_for_email_send(
+    p_quotation_id TEXT,
+    p_actor_id UUID,
+    p_force_resend BOOLEAN DEFAULT FALSE
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_quote RECORD;
+    v_items JSONB;
+    v_actor RECORD;
+    v_idempotency_key TEXT;
+    v_now TIMESTAMPTZ := NOW();
+BEGIN
+    -- 1. Authorization check for actor
+    IF current_user != 'service_role' THEN
+        SELECT id, role, is_active, full_name, email INTO v_actor
+        FROM public.administrator_users
+        WHERE id = p_actor_id AND is_active = true;
+
+        IF NOT FOUND OR v_actor.role NOT IN ('super_admin', 'operations_manager', 'sales_engineer') THEN
+            RETURN jsonb_build_object(
+                'success', false,
+                'error', 'Unauthorized: Quotation dispatch requires active super_admin, operations_manager, or sales_engineer role.'
+            );
+        END IF;
+    END IF;
+
+    -- 2. Atomically lock quotation row
+    SELECT * INTO v_quote
+    FROM public.quotations
+    WHERE id = p_quotation_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Quotation ' || p_quotation_id || ' not found.');
+    END IF;
+
+    -- 3. Validate status
+    IF v_quote.status = 'Draft' THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Cannot send quotation in Draft status. Quotation must be officially Approved first.');
+    END IF;
+
+    IF v_quote.status IN ('Cancelled', 'Expired') THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Cannot send quotation with status: ' || v_quote.status || '. Create a new revision.');
+    END IF;
+
+    -- Check if already sent and not force_resend
+    IF v_quote.status = 'Sent' AND COALESCE(v_quote.email_delivery_count, 0) > 0 AND NOT COALESCE(p_force_resend, false) THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'already_sent', true,
+            'error', 'Quotation ' || v_quote.id || ' was already dispatched on ' || to_char(v_quote.sent_at, 'YYYY-MM-DD HH24:MI:SS') || '. Specify force_resend to re-dispatch.',
+            'last_resend_email_id', v_quote.last_resend_email_id
+        );
+    END IF;
+
+    -- 4. Generate collision-free server idempotency key
+    v_idempotency_key := 'zez_qsend_' || v_quote.id || '_r' || v_quote.revision_number || '_' || to_char(v_now, 'YYYYMMDD_HH24MISS') || '_' || encode(gen_random_bytes(6), 'hex');
+
+    UPDATE public.quotations
+    SET last_email_idempotency_key = v_idempotency_key,
+        updated_at = v_now
+    WHERE id = v_quote.id;
+
+    -- 5. Fetch line items
+    SELECT COALESCE(jsonb_agg(
+        jsonb_build_object(
+            'id', id,
+            'sku', sku,
+            'product_name', product_name,
+            'model', model,
+            'brand', brand,
+            'quantity', quantity,
+            'unit_price_php', unit_price_php,
+            'discount_percent', discount_percent,
+            'line_total_php', line_total_php,
+            'lead_time', lead_time,
+            'warranty', warranty,
+            'notes', notes,
+            'sort_order', sort_order
+        ) ORDER BY sort_order ASC
+    ), '[]'::jsonb) INTO v_items
+    FROM public.quotation_line_items
+    WHERE quotation_id = v_quote.id;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'idempotency_key', v_idempotency_key,
+        'quotation', to_jsonb(v_quote),
+        'items', v_items
+    );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.claim_quotation_for_email_send(TEXT, UUID, BOOLEAN) TO authenticated, service_role;
+
+-- 6.2 FINALIZE QUOTATION EMAIL SEND PROCEDURE
+CREATE OR REPLACE FUNCTION public.finalize_quotation_email_send(
+    p_quotation_id TEXT,
+    p_actor_id UUID,
+    p_resend_id TEXT,
+    p_idempotency_key TEXT,
+    p_recipient TEXT,
+    p_pdf_attached BOOLEAN DEFAULT TRUE
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_quote RECORD;
+    v_actor_name TEXT := 'System Administrator';
+    v_now TIMESTAMPTZ := NOW();
+    v_next_count INT;
+BEGIN
+    SELECT * INTO v_quote FROM public.quotations WHERE id = p_quotation_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Quotation not found.');
+    END IF;
+
+    IF p_actor_id IS NOT NULL THEN
+        SELECT COALESCE(full_name, email) INTO v_actor_name FROM public.administrator_users WHERE id = p_actor_id;
+    END IF;
+
+    v_next_count := COALESCE(v_quote.email_delivery_count, 0) + 1;
+
+    UPDATE public.quotations
+    SET status = 'Sent',
+        sent_at = v_now,
+        sent_to_email = p_recipient,
+        last_resend_email_id = p_resend_id,
+        last_email_idempotency_key = p_idempotency_key,
+        email_delivery_count = v_next_count,
+        updated_at = v_now
+    WHERE id = p_quotation_id;
+
+    INSERT INTO public.quotation_audit_logs (
+        quotation_id,
+        actor_id,
+        actor_name,
+        action,
+        details
+    ) VALUES (
+        p_quotation_id,
+        p_actor_id,
+        v_actor_name,
+        'Quotation Dispatched via Email',
+        jsonb_build_object(
+            'recipient', p_recipient,
+            'resend_id', p_resend_id,
+            'idempotency_key', p_idempotency_key,
+            'delivery_count', v_next_count,
+            'pdf_attached', p_pdf_attached,
+            'sent_at', v_now
+        )
+    );
+
+    RETURN jsonb_build_object('success', true, 'delivery_count', v_next_count);
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.finalize_quotation_email_send(TEXT, UUID, TEXT, TEXT, TEXT, BOOLEAN) TO authenticated, service_role;
 
 -- 7. SECURE CUSTOMER RPC: GET SANITIZED QUOTATION BY TOKEN
 -- Enforces:
@@ -485,11 +713,19 @@ BEGIN
         RETURN jsonb_build_object('success', false, 'error', 'Quotation not found or invalid access link.');
     END IF;
 
-    -- 1. Restrict Draft and Pending Approval from public customer exposure
-    IF v_quote.status IN ('Draft', 'Pending Approval') THEN
+    -- 1. Restrict Draft, Pending Approval, Approved (unissued), and Cancelled from public customer exposure
+    IF v_quote.status IN ('Draft', 'Pending Approval', 'Approved') THEN
         RETURN jsonb_build_object(
             'success', false,
-            'error', 'This commercial proposal is currently undergoing administrative review and has not yet been issued for customer viewing.',
+            'error', 'This commercial proposal has not yet been officially issued for customer viewing.',
+            'status', v_quote.status
+        );
+    END IF;
+
+    IF v_quote.status = 'Cancelled' THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'This commercial quotation has been cancelled and is no longer accessible.',
             'status', v_quote.status
         );
     END IF;
@@ -604,20 +840,19 @@ BEGIN
         RETURN jsonb_build_object('success', false, 'error', 'Invalid quotation access token.');
     END IF;
 
-    -- Reject responses to unissued quotes
-    IF v_quote.status IN ('Draft', 'Pending Approval') THEN
-        RETURN jsonb_build_object('success', false, 'error', 'This quotation has not been issued to customers yet.');
+    -- Restrict responses strictly to valid, unexpired, officially sent quotations
+    IF v_quote.status NOT IN ('Sent', 'Under Review') THEN
+        IF v_quote.status IN ('Draft', 'Pending Approval', 'Approved') THEN
+            RETURN jsonb_build_object('success', false, 'error', 'This quotation has not been officially sent to the customer yet.');
+        ELSE
+            RETURN jsonb_build_object('success', false, 'error', 'This quotation is closed with status ' || v_quote.status || ' and cannot receive customer responses.');
+        END IF;
     END IF;
 
     -- Reject expired quotations
-    IF v_quote.token_expires_at < NOW() AND v_quote.status NOT IN ('Accepted') THEN
+    IF v_quote.token_expires_at < NOW() THEN
         UPDATE public.quotations SET status = 'Expired', updated_at = NOW() WHERE id = v_quote.id;
         RETURN jsonb_build_object('success', false, 'error', 'This quotation has expired and can no longer be accepted. Please request a new revision.');
-    END IF;
-
-    -- Prevent modifying already-finalized responses
-    IF v_quote.status IN ('Accepted', 'Declined', 'Cancelled') THEN
-        RETURN jsonb_build_object('success', false, 'error', 'This quotation has already been closed with status: ' || v_quote.status);
     END IF;
 
     IF p_response = 'Accepted' THEN

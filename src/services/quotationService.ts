@@ -85,8 +85,8 @@ export function convertRfqToQuotation(
   });
 
   const specialistName = adminUser?.fullName
-    ? `${adminUser.fullName} (${adminUser.role === 'super_admin' ? 'Super Admin' : 'Sales Specialist'})`
-    : 'ZEZ Commercial Engineering Group';
+    ? adminUser.fullName
+    : undefined;
 
   return {
     id: fallbackId,
@@ -101,12 +101,12 @@ export function convertRfqToQuotation(
     deliveryCityProvince: rfq.customer.deliveryCityProvince || 'Metro Manila',
     deliveryAddress: rfq.customer.deliveryCityProvince || '',
     tinNumber: '',
-    paymentTerms: 'Cash On Delivery (COD) / Full Payment upon turnover',
-    warrantyTerms: 'Standard 1-Year Local Manufacturer Warranty on Hardware',
+    paymentTerms: 'Standard commercial terms as specified in quotation / PO',
+    warrantyTerms: 'Standard manufacturer warranty as specified per product line',
     validityDays: 30,
     validUntil: validUntil.toISOString(),
     currency: 'PHP',
-    leadTimeDescription: 'Standard Freight Delivery (3-5 business days upon PO acceptance)',
+    leadTimeDescription: 'Subject to stock availability and logistics confirmation',
     specialInstructions: rfq.customer.additionalRequirements || '',
     adminNotes: rfq.adminNotes ? `RFQ Notes: ${rfq.adminNotes}` : '',
     assignedSpecialist: specialistName,
@@ -151,8 +151,8 @@ export function createBlankQuotation(adminUser?: AdminUserSession | null): Quota
   const token = generateCustomerAccessToken();
 
   const specialistName = adminUser?.fullName
-    ? `${adminUser.fullName} (${adminUser.role === 'super_admin' ? 'Super Admin' : 'Sales Specialist'})`
-    : 'ZEZ Commercial Engineering Group';
+    ? adminUser.fullName
+    : undefined;
 
   return {
     id: fallbackId,
@@ -166,12 +166,12 @@ export function createBlankQuotation(adminUser?: AdminUserSession | null): Quota
     deliveryCityProvince: 'Metro Manila',
     deliveryAddress: '',
     tinNumber: '',
-    paymentTerms: 'Cash On Delivery (COD) / Full Payment upon turnover',
-    warrantyTerms: 'Standard 1-Year Local Manufacturer Warranty on Hardware',
+    paymentTerms: 'Standard commercial terms as specified in quotation / PO',
+    warrantyTerms: 'Standard manufacturer warranty as specified per product line',
     validityDays: 30,
     validUntil: validUntil.toISOString(),
     currency: 'PHP',
-    leadTimeDescription: 'Standard Freight Delivery (3-5 business days upon PO acceptance)',
+    leadTimeDescription: 'Subject to stock availability and logistics confirmation',
     specialInstructions: '',
     adminNotes: '',
     assignedSpecialist: specialistName,
@@ -358,64 +358,13 @@ export async function persistQuotation(
       return { success: true, quotation: saved };
     }
 
-    // If RPC returned a logic/permission rejection, surface it immediately
-    if (rpcErr && !rpcErr.message.includes('save_official_quotation') && !rpcErr.message.includes('not found')) {
-      return { success: false, error: rpcErr.message };
-    }
-
-    // 2. Direct table upsert fallback (if RPC function not yet compiled in Supabase)
-    // Check immutability of sent quotations
-    const { data: existingQuote } = await supabase
-      .from('quotations')
-      .select('status, revision_number')
-      .eq('id', targetId)
-      .maybeSingle();
-
-    if (existingQuote && ['Sent', 'Accepted', 'Declined'].includes(existingQuote.status)) {
-      return {
-        success: false,
-        error: `Quotation ${targetId} is in immutable status (${existingQuote.status}). Issued commercial quotations cannot be modified. Create a new revision (Rev ${existingQuote.revision_number + 1}) to make amendments.`
-      };
-    }
-
-    const { error: quoteErr } = await supabase
-      .from('quotations')
-      .upsert(quoteRpcPayload, { onConflict: 'id' });
-
-    if (quoteErr) {
-      console.error('[ZEZ Quotation] Supabase upsert error:', quoteErr.message);
-      return { success: false, error: `Database error: ${quoteErr.message}` };
-    }
-
-    await supabase.from('quotation_line_items').delete().eq('quotation_id', targetId);
-
-    if (quotation.items && quotation.items.length > 0) {
-      const dbItemsPayload = quotation.items.map((it, idx) => ({
-        quotation_id: targetId,
-        product_id: it.productId || null,
-        sku: it.sku || null,
-        product_name: it.productName,
-        model: it.model || null,
-        brand: it.brand || null,
-        quantity: it.quantity,
-        unit_price_php: it.unitPricePhp || 0,
-        discount_percent: it.discountPercent || 0,
-        line_total_php: it.lineTotalPhp,
-        lead_time: it.leadTime || null,
-        warranty: it.warranty || null,
-        notes: it.notes || null,
-        sort_order: idx
-      }));
-
-      const { error: itemsErr } = await supabase.from('quotation_line_items').insert(dbItemsPayload);
-      if (itemsErr) {
-        return { success: false, error: `Failed to save quotation line items: ${itemsErr.message}` };
-      }
-    }
-
-    const localList = getLocalQuotations();
-    saveLocalQuotations([quotation, ...localList.filter(q => q.id !== quotation.id)]);
-    return { success: true, quotation };
+    // In production with Supabase configured, all quotation and line-item writes
+    // must be strictly transactional via save_official_quotation.
+    // Direct table upsert bypass is prohibited.
+    return {
+      success: false,
+      error: rpcErr?.message || rpcData?.error || 'Database rejected quotation write. Transactional validation failed.'
+    };
   } catch (err: any) {
     console.error('[ZEZ Quotation] Exception persisting quotation:', err);
     return { success: false, error: err.message || 'Database connection error' };
@@ -735,15 +684,10 @@ export async function dispatchQuotationEmail(
       console.warn('[ZEZ Quotation] Could not generate PDF attachment:', pdfErr);
     }
 
-    const stableKey = `zez_quote_${quotation.id}_rev${quotation.revisionNumber}`;
-
     const { data, error } = await supabase.functions.invoke('send-quotation-email', {
       body: {
         quotation_id: quotation.id,
-        recipient_email: quotation.customerEmail,
-        custom_message: customMessage,
-        idempotency_key: stableKey,
-        pdf_base64: pdfBase64
+        custom_message: customMessage
       },
       headers: token ? { Authorization: `Bearer ${token}` } : {}
     });
