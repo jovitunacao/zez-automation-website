@@ -368,10 +368,12 @@ serve(async (req: Request) => {
       );
     }
 
-    // 9. Finalize email send transactionally via database RPC (with active claim token validation)
-    const { data: finalizeData, error: finalizeError } = await supabaseAdmin.rpc(
-      "finalize_quotation_email_send",
-      {
+    // 9. Finalize email send transactionally via database RPC (with active claim token validation & retry resilience)
+    let finalizeData: any = null;
+    let finalizeError: any = null;
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const { data, error } = await supabaseAdmin.rpc("finalize_quotation_email_send", {
         p_quotation_id: quote.id,
         p_claim_token: claimToken,
         p_actor_id: adminUser.id,
@@ -379,11 +381,22 @@ serve(async (req: Request) => {
         p_idempotency_key: serverIdempotencyKey,
         p_recipient: targetRecipient,
         p_pdf_attached: attachments.length > 0,
-      }
-    );
+      });
 
-    if (finalizeError || finalizeData?.success === false) {
-      console.error("[ZEZ Edge Function] Finalize RPC error:", finalizeError?.message || finalizeData?.error);
+      if (!error && (data?.success || data?.already_finalized)) {
+        finalizeData = data;
+        finalizeError = null;
+        break;
+      }
+
+      finalizeError = error || new Error(data?.error || `Finalize attempt ${attempt} failed`);
+      if (attempt < 3) {
+        await new Promise((resolve) => setTimeout(resolve, 300 * attempt));
+      }
+    }
+
+    if (finalizeError || !finalizeData) {
+      console.error("[ZEZ Edge Function] Finalize RPC error after retries:", finalizeError?.message || finalizeData?.error);
       return new Response(
         JSON.stringify({
           success: false,

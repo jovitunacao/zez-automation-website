@@ -13,6 +13,50 @@
 --     and customer data to authorized administrators.
 -- ==============================================================================
 
+-- 0. CALLER IDENTITY HELPER FOR SECURITY DEFINER FUNCTIONS
+-- In PostgreSQL SECURITY DEFINER functions, current_user evaluates to the function owner (postgres).
+-- To reliably identify the invoking role without relying on current_user, this helper inspects
+-- session_user and PostgREST session JWT claims (role).
+CREATE OR REPLACE FUNCTION public.is_service_role()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+STABLE
+AS $$
+DECLARE
+    v_jwt_role TEXT;
+BEGIN
+    -- 1. Direct superuser / maintenance session (e.g., Supabase SQL Editor, pg_cron)
+    IF session_user IN ('postgres', 'supabase_admin') THEN
+        RETURN true;
+    END IF;
+
+    -- 2. Direct session connection as service_role
+    IF session_user = 'service_role' THEN
+        RETURN true;
+    END IF;
+
+    -- 3. PostgREST JWT claim role passed by Edge Functions or service_role API callers
+    v_jwt_role := COALESCE(
+        NULLIF(current_setting('request.jwt.claim.role', true), ''),
+        (NULLIF(current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'),
+        auth.role()
+    );
+
+    IF v_jwt_role = 'service_role' THEN
+        RETURN true;
+    END IF;
+
+    RETURN false;
+EXCEPTION WHEN OTHERS THEN
+    RETURN false;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.is_service_role() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.is_service_role() TO anon, authenticated, service_role;
+
 -- 1. ATOMIC QUOTATION NUMBER GENERATOR
 CREATE SEQUENCE IF NOT EXISTS public.quotation_number_seq START WITH 1 INCREMENT BY 1;
 
@@ -27,7 +71,8 @@ DECLARE
     v_seq INT;
     v_number TEXT;
 BEGIN
-    IF current_user != 'service_role' AND NOT public.is_admin() THEN
+    -- Authorize service_role or active administrator (never check current_user)
+    IF NOT (public.is_service_role() OR public.is_admin()) THEN
         RAISE EXCEPTION 'Unauthorized: Administrator privileges required to generate quotation number.';
     END IF;
 
@@ -234,6 +279,27 @@ SECURITY DEFINER
 SET search_path = public, pg_temp
 AS $$
 BEGIN
+    IF TG_OP = 'INSERT' THEN
+        -- 1. Prevent inserting as 'Sent' directly without verified service_role email dispatch
+        IF NEW.status = 'Sent' THEN
+            IF NOT public.is_service_role() OR NEW.last_resend_email_id IS NULL OR trim(NEW.last_resend_email_id) = '' THEN
+                RAISE EXCEPTION 'Cannot insert quotation with status Sent. Quotations must follow the official approval and email dispatch workflow.';
+            END IF;
+        END IF;
+
+        -- 2. Prevent inserting as 'Approved' without administrator reference
+        IF NEW.status = 'Approved' AND NEW.approved_by IS NULL THEN
+            RAISE EXCEPTION 'Quotation % cannot be created with Approved status without approved_by administrator reference.', NEW.id;
+        END IF;
+
+        -- 3. Prevent inserting directly into closed terminal statuses
+        IF NEW.status IN ('Accepted', 'Declined', 'Expired') THEN
+            RAISE EXCEPTION 'Cannot insert quotation % directly into terminal status (%).', NEW.id, NEW.status;
+        END IF;
+
+        RETURN NEW;
+    END IF;
+
     IF TG_OP = 'DELETE' THEN
         IF OLD.status IN ('Approved', 'Sent', 'Accepted', 'Declined') THEN
             RAISE EXCEPTION 'Cannot delete quotation % with status (%). Commercial records must be preserved for audit compliance. Cancel or revise instead.', OLD.id, OLD.status;
@@ -271,7 +337,7 @@ BEGIN
 
         -- 4. Prevent transition to Sent without verified email dispatch proof
         IF NEW.status = 'Sent' AND OLD.status != 'Sent' THEN
-            IF NEW.last_resend_email_id IS NULL OR trim(NEW.last_resend_email_id) = '' THEN
+            IF NOT public.is_service_role() AND (NEW.last_resend_email_id IS NULL OR trim(NEW.last_resend_email_id) = '') THEN
                 RAISE EXCEPTION 'Cannot mark quotation % as Sent without verified email dispatch proof (last_resend_email_id).', OLD.id;
             END IF;
         END IF;
@@ -292,7 +358,7 @@ $$;
 
 DROP TRIGGER IF EXISTS trg_quotations_security_rules ON public.quotations;
 CREATE TRIGGER trg_quotations_security_rules
-    BEFORE UPDATE OR DELETE ON public.quotations
+    BEFORE INSERT OR UPDATE OR DELETE ON public.quotations
     FOR EACH ROW
     EXECUTE FUNCTION public.trg_enforce_quotation_rules();
 
@@ -367,8 +433,8 @@ DECLARE
     v_approved_by UUID := NULL;
     v_approved_at TIMESTAMPTZ := NULL;
 BEGIN
-    -- 1. Identity Resolution & Role Authorization (Never trust caller-supplied admin ID/role)
-    IF current_user = 'service_role' THEN
+    -- 1. Identity Resolution & Role Authorization (Never trust caller-supplied admin ID/role or current_user)
+    IF public.is_service_role() THEN
         v_actor_id := (p_quote->>'actor_id')::UUID;
         v_actor_name := COALESCE(p_actor_name, 'Service Role Administrator');
         v_actor_role := 'super_admin';
@@ -389,6 +455,14 @@ BEGIN
 
         v_actor_name := COALESCE(v_admin_user.full_name, v_admin_user.email, 'Administrator');
         v_actor_role := v_admin_user.role;
+
+        -- Enforce that modifying/saving quotations requires super_admin, operations_manager, or sales_engineer
+        IF v_actor_role NOT IN ('super_admin', 'operations_manager', 'sales_engineer') THEN
+            RETURN jsonb_build_object(
+                'success', false,
+                'error', 'Forbidden: Administrator role (' || v_actor_role || ') does not have permission to modify quotations.'
+            );
+        END IF;
     END IF;
 
     v_id := p_quote->>'id';
@@ -705,8 +779,8 @@ DECLARE
     v_claim_expires_at TIMESTAMPTZ;
     v_now TIMESTAMPTZ := NOW();
 BEGIN
-    -- 1. Security check: Only service_role may invoke email-send claiming (called through secure Edge Function)
-    IF current_user != 'service_role' THEN
+    -- 1. Security check: Only service_role may invoke email-send claiming (never check current_user)
+    IF NOT public.is_service_role() THEN
         RETURN jsonb_build_object(
             'success', false,
             'error', 'Unauthorized: Email claiming is restricted to service_role via the secure Edge Function.'
@@ -848,8 +922,8 @@ DECLARE
     v_now TIMESTAMPTZ := NOW();
     v_next_count INT;
 BEGIN
-    -- 1. Security check: Only service_role may finalize email dispatches
-    IF current_user != 'service_role' THEN
+    -- 1. Security check: Only service_role may finalize email dispatches (never check current_user)
+    IF NOT public.is_service_role() THEN
         RETURN jsonb_build_object(
             'success', false,
             'error', 'Unauthorized: Email finalization is restricted to service_role.'
@@ -868,6 +942,18 @@ BEGIN
     SELECT * INTO v_quote FROM public.quotations WHERE id = p_quotation_id FOR UPDATE;
     IF NOT FOUND THEN
         RETURN jsonb_build_object('success', false, 'error', 'Quotation ' || p_quotation_id || ' not found.');
+    END IF;
+
+    -- Durable idempotency check: If already finalized with this exact Resend delivery ID
+    -- (handles network failure on return path from database finalization)
+    IF v_quote.status = 'Sent' AND v_quote.last_resend_email_id = p_resend_id THEN
+        RETURN jsonb_build_object(
+            'success', true,
+            'already_finalized', true,
+            'delivery_count', v_quote.email_delivery_count,
+            'resend_id', p_resend_id,
+            'status', 'Sent'
+        );
     END IF;
 
     IF v_quote.email_claim_token IS NULL OR v_quote.email_claim_token != p_claim_token THEN
@@ -956,7 +1042,7 @@ AS $$
 DECLARE
     v_quote RECORD;
 BEGIN
-    IF current_user != 'service_role' THEN
+    IF NOT public.is_service_role() THEN
         RETURN jsonb_build_object('success', false, 'error', 'Unauthorized: Releasing claim is restricted to service_role.');
     END IF;
 
