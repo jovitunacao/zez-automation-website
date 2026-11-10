@@ -310,6 +310,7 @@ export interface Quotation {
   lastEmailIdempotencyKey?: string;
   lastResendEmailId?: string;
   emailDeliveryCount?: number;
+  emailDispatchStatus?: 'idle' | 'claiming' | 'sending' | 'sent' | 'failed';
   items: QuotationLineItem[];
   auditLogs?: QuotationAuditLog[];
   createdAt: string;

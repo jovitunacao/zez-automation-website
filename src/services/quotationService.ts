@@ -474,6 +474,7 @@ export async function fetchAllQuotations(): Promise<{ data: Quotation[]; error: 
         lastEmailIdempotencyKey: row.last_email_idempotency_key,
         lastResendEmailId: row.last_resend_email_id,
         emailDeliveryCount: row.email_delivery_count || 0,
+        emailDispatchStatus: row.email_dispatch_status || 'idle',
         items,
         auditLogs,
         createdAt: row.created_at,
@@ -657,12 +658,13 @@ export async function submitCustomerQuotationResponse(
  */
 export async function dispatchQuotationEmail(
   quotation: Quotation,
-  customMessage?: string
+  customMessage?: string,
+  forceResend?: boolean
 ): Promise<{ success: boolean; error?: string }> {
-  if (quotation.status === 'Draft') {
+  if (quotation.status === 'Draft' || quotation.status === 'Pending Approval') {
     return {
       success: false,
-      error: "Cannot send quotation in 'Draft' status. Quotation must be officially Approved before sending to customer."
+      error: `Cannot send quotation in '${quotation.status}' status. Quotation must be officially Approved before sending to customer.`
     };
   }
 
@@ -687,7 +689,8 @@ export async function dispatchQuotationEmail(
     const { data, error } = await supabase.functions.invoke('send-quotation-email', {
       body: {
         quotation_id: quotation.id,
-        custom_message: customMessage
+        custom_message: customMessage,
+        force_resend: Boolean(forceResend)
       },
       headers: token ? { Authorization: `Bearer ${token}` } : {}
     });

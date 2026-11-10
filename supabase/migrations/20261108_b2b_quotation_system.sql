@@ -27,6 +27,10 @@ DECLARE
     v_seq INT;
     v_number TEXT;
 BEGIN
+    IF current_user != 'service_role' AND NOT public.is_admin() THEN
+        RAISE EXCEPTION 'Unauthorized: Administrator privileges required to generate quotation number.';
+    END IF;
+
     v_year := to_char(CURRENT_DATE, 'YYYY');
     v_seq := nextval('public.quotation_number_seq');
     v_number := 'ZEZ-Q-' || v_year || '-' || LPAD(v_seq::TEXT, 5, '0');
@@ -34,8 +38,9 @@ BEGIN
 END;
 $$;
 
--- Restrict execution
+-- Restrict execution strictly to administrators and service_role
 REVOKE ALL ON FUNCTION public.generate_quotation_number() FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.generate_quotation_number() FROM anon;
 GRANT EXECUTE ON FUNCTION public.generate_quotation_number() TO authenticated, service_role;
 
 -- 2. OFFICIAL B2B QUOTATIONS TABLE
@@ -96,7 +101,11 @@ CREATE TABLE IF NOT EXISTS public.quotations (
     customer_response_notes TEXT,
     client_po_number TEXT,
     
-    -- Email Tracking & Idempotency
+    -- Email Tracking, Concurrency Lock & Idempotency
+    email_dispatch_status VARCHAR(30) NOT NULL DEFAULT 'idle', -- 'idle' | 'claiming' | 'sending' | 'sent' | 'failed'
+    email_claim_token UUID,
+    email_claim_expires_at TIMESTAMPTZ,
+    email_claim_actor_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
     last_email_idempotency_key TEXT,
     last_resend_email_id TEXT,
     email_delivery_count INT NOT NULL DEFAULT 0,
@@ -104,6 +113,12 @@ CREATE TABLE IF NOT EXISTS public.quotations (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- Ensure schema compatibility for existing databases
+ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS email_dispatch_status VARCHAR(30) NOT NULL DEFAULT 'idle';
+ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS email_claim_token UUID;
+ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS email_claim_expires_at TIMESTAMPTZ;
+ALTER TABLE public.quotations ADD COLUMN IF NOT EXISTS email_claim_actor_id UUID REFERENCES auth.users(id) ON DELETE SET NULL;
 
 -- Ensure base_quotation_id defaults to id if not specified
 UPDATE public.quotations SET base_quotation_id = id WHERE base_quotation_id IS NULL;
@@ -115,6 +130,8 @@ CREATE INDEX IF NOT EXISTS idx_quotations_customer_email ON public.quotations(cu
 CREATE INDEX IF NOT EXISTS idx_quotations_token ON public.quotations(customer_access_token);
 CREATE INDEX IF NOT EXISTS idx_quotations_created ON public.quotations(created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_quotations_base_rev ON public.quotations(base_quotation_id, revision_number);
+CREATE INDEX IF NOT EXISTS idx_quotations_email_dispatch ON public.quotations(email_dispatch_status);
+CREATE INDEX IF NOT EXISTS idx_quotations_claim_token ON public.quotations(email_claim_token);
 
 -- 3. QUOTATION LINE ITEMS
 CREATE TABLE IF NOT EXISTS public.quotation_line_items (
@@ -207,21 +224,128 @@ TO service_role
 USING (true)
 WITH CHECK (true);
 
+-- 5.4 DIRECT TABLE UPDATE & IMMUTABILITY ENFORCEMENT TRIGGERS
+-- Prevents direct table updates from bypassing quotation approval,
+-- immutable issued versions, or email status rules.
+CREATE OR REPLACE FUNCTION public.trg_enforce_quotation_rules()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        IF OLD.status IN ('Approved', 'Sent', 'Accepted', 'Declined') THEN
+            RAISE EXCEPTION 'Cannot delete quotation % with status (%). Commercial records must be preserved for audit compliance. Cancel or revise instead.', OLD.id, OLD.status;
+        END IF;
+        RETURN OLD;
+    END IF;
+
+    IF TG_OP = 'UPDATE' THEN
+        -- 1. Prevent modification of terminal quotations
+        IF OLD.status IN ('Accepted', 'Declined', 'Expired', 'Cancelled') THEN
+            IF NEW.status != OLD.status THEN
+                RAISE EXCEPTION 'Quotation % is in terminal status (%) and cannot transition to %.', OLD.id, OLD.status, NEW.status;
+            END IF;
+            IF NEW.subtotal_php != OLD.subtotal_php OR NEW.grand_total_php != OLD.grand_total_php 
+               OR NEW.vat_amount_php != OLD.vat_amount_php OR NEW.customer_email != OLD.customer_email 
+               OR NEW.payment_terms != OLD.payment_terms THEN
+                RAISE EXCEPTION 'Commercial terms and pricing of quotation % are immutable in terminal status (%).', OLD.id, OLD.status;
+            END IF;
+        END IF;
+
+        -- 2. Prevent tampering with pricing or commercial terms of issued quotations
+        IF OLD.status IN ('Sent', 'Under Review') THEN
+            IF NEW.subtotal_php != OLD.subtotal_php OR NEW.grand_total_php != OLD.grand_total_php 
+               OR NEW.vat_amount_php != OLD.vat_amount_php OR NEW.discount_amount_php != OLD.discount_amount_php 
+               OR NEW.payment_terms != OLD.payment_terms OR NEW.customer_email != OLD.customer_email 
+               OR NEW.currency != OLD.currency THEN
+                RAISE EXCEPTION 'Quotation % is in issued status (%). Commercial terms and pricing are immutable. Create a new revision to amend.', OLD.id, OLD.status;
+            END IF;
+        END IF;
+
+        -- 3. Prevent direct leap from Draft to Sent without official approval
+        IF OLD.status = 'Draft' AND NEW.status = 'Sent' THEN
+            RAISE EXCEPTION 'Direct transition from Draft to Sent is forbidden on quotation %. Quotations must be officially Approved first.', OLD.id;
+        END IF;
+
+        -- 4. Prevent transition to Sent without verified email dispatch proof
+        IF NEW.status = 'Sent' AND OLD.status != 'Sent' THEN
+            IF NEW.last_resend_email_id IS NULL OR trim(NEW.last_resend_email_id) = '' THEN
+                RAISE EXCEPTION 'Cannot mark quotation % as Sent without verified email dispatch proof (last_resend_email_id).', OLD.id;
+            END IF;
+        END IF;
+
+        -- 5. Prevent marking Approved without administrator reference
+        IF NEW.status = 'Approved' AND OLD.status != 'Approved' THEN
+            IF NEW.approved_by IS NULL THEN
+                RAISE EXCEPTION 'Quotation % cannot be marked Approved without approved_by administrator reference.', OLD.id;
+            END IF;
+        END IF;
+
+        RETURN NEW;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_quotations_security_rules ON public.quotations;
+CREATE TRIGGER trg_quotations_security_rules
+    BEFORE UPDATE OR DELETE ON public.quotations
+    FOR EACH ROW
+    EXECUTE FUNCTION public.trg_enforce_quotation_rules();
+
+-- Line items immutability trigger
+CREATE OR REPLACE FUNCTION public.trg_enforce_quotation_line_items_immutability()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_target_qid TEXT;
+    v_q_status TEXT;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        v_target_qid := OLD.quotation_id;
+    ELSE
+        v_target_qid := NEW.quotation_id;
+    END IF;
+
+    SELECT status INTO v_q_status FROM public.quotations WHERE id = v_target_qid;
+    IF v_q_status IN ('Sent', 'Accepted', 'Declined', 'Expired', 'Cancelled') THEN
+        RAISE EXCEPTION 'Cannot modify or delete line items for quotation % in issued or closed status (%). Line items on issued quotations are immutable.', v_target_qid, v_q_status;
+    END IF;
+
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    ELSE
+        RETURN NEW;
+    END IF;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_quotation_line_items_immutability ON public.quotation_line_items;
+CREATE TRIGGER trg_quotation_line_items_immutability
+    BEFORE INSERT OR UPDATE OR DELETE ON public.quotation_line_items
+    FOR EACH ROW
+    EXECUTE FUNCTION public.trg_enforce_quotation_line_items_immutability();
+
 -- 6. TRANSACTIONALLY CONSISTENT QUOTATION SAVE RPC
 -- Enforces:
---  - Authorization (authenticated admin or service_role)
---  - Immutability of issued quotations (Sent, Accepted, Declined)
+--  - Authorization (authenticated admin or service_role; never trusts caller-supplied admin ID)
+--  - Immutability of issued quotations (Sent, Accepted, Declined) checked on real values (not audit string)
 --  - Server-side atomic sequence number allocation
 --  - Transactional replacement of line items
 --  - Immutable audit trail
---  - Server-side atomic ID allocation (never client-generated)
 --  - Status transition state machine validation
 --  - Approval role enforcement (super_admin, operations_manager, sales_engineer)
 CREATE OR REPLACE FUNCTION public.save_official_quotation(
     p_quote JSONB,
     p_items JSONB,
-    p_actor_name TEXT,
-    p_audit_action TEXT
+    p_actor_name TEXT DEFAULT NULL,
+    p_audit_action TEXT DEFAULT NULL
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -234,15 +358,37 @@ DECLARE
     v_rev INT;
     v_status TEXT;
     v_existing RECORD;
-    v_is_admin BOOLEAN;
     v_now TIMESTAMPTZ := NOW();
     v_item JSONB;
+    v_actor_id UUID;
+    v_actor_name TEXT;
     v_actor_role TEXT;
+    v_admin_user RECORD;
+    v_approved_by UUID := NULL;
+    v_approved_at TIMESTAMPTZ := NULL;
 BEGIN
-    -- Verify caller authorization
-    v_is_admin := public.is_admin();
-    IF NOT v_is_admin AND current_user != 'service_role' THEN
-        RETURN jsonb_build_object('success', false, 'error', 'Unauthorized: Administrator privileges required.');
+    -- 1. Identity Resolution & Role Authorization (Never trust caller-supplied admin ID/role)
+    IF current_user = 'service_role' THEN
+        v_actor_id := (p_quote->>'actor_id')::UUID;
+        v_actor_name := COALESCE(p_actor_name, 'Service Role Administrator');
+        v_actor_role := 'super_admin';
+    ELSE
+        -- Must be authenticated
+        IF auth.uid() IS NULL THEN
+            RETURN jsonb_build_object('success', false, 'error', 'Unauthorized: Authenticated session required.');
+        END IF;
+
+        v_actor_id := auth.uid();
+        SELECT id, full_name, email, role, is_active INTO v_admin_user
+        FROM public.administrator_users
+        WHERE id = v_actor_id AND is_active = true;
+
+        IF NOT FOUND THEN
+            RETURN jsonb_build_object('success', false, 'error', 'Unauthorized: Active administrator account required.');
+        END IF;
+
+        v_actor_name := COALESCE(v_admin_user.full_name, v_admin_user.email, 'Administrator');
+        v_actor_role := v_admin_user.role;
     END IF;
 
     v_id := p_quote->>'id';
@@ -250,7 +396,7 @@ BEGIN
     v_rev := COALESCE((p_quote->>'revision_number')::INT, 1);
     v_base_id := p_quote->>'base_quotation_id';
 
-    -- Check if record already exists in database
+    -- 2. Lookup existing record
     SELECT * INTO v_existing FROM public.quotations WHERE id = v_id;
 
     IF NOT FOUND THEN
@@ -274,7 +420,7 @@ BEGIN
         v_base_id := COALESCE(v_existing.base_quotation_id, v_existing.id);
         v_rev := v_existing.revision_number;
 
-        -- 1. Status Transition State Machine Validation
+        -- 3. Status Transition State Machine Validation
         IF v_existing.status IN ('Accepted', 'Declined', 'Expired', 'Cancelled') AND v_status != v_existing.status THEN
             RETURN jsonb_build_object(
                 'success', false,
@@ -294,31 +440,46 @@ BEGIN
             RETURN jsonb_build_object('success', false, 'error', 'Invalid transition from Under Review to ' || v_status || '.');
         END IF;
 
-        -- 2. Immutability Check: Issued commercial quotations cannot be modified in-place
-        IF v_existing.status IN ('Sent', 'Accepted', 'Declined') THEN
-            IF p_audit_action NOT LIKE 'Status update%' AND p_audit_action NOT LIKE 'Customer%' AND p_audit_action NOT LIKE 'Quotation Dispatched%' THEN
+        -- 4. True Immutability Check (Never trust user-supplied audit action string!)
+        IF v_existing.status IN ('Sent', 'Accepted', 'Declined', 'Expired', 'Cancelled') THEN
+            IF (p_quote ? 'subtotal_php' AND (p_quote->>'subtotal_php')::NUMERIC != v_existing.subtotal_php)
+               OR (p_quote ? 'grand_total_php' AND (p_quote->>'grand_total_php')::NUMERIC != v_existing.grand_total_php)
+               OR (p_quote ? 'vat_amount_php' AND (p_quote->>'vat_amount_php')::NUMERIC != v_existing.vat_amount_php)
+               OR (p_quote ? 'discount_amount_php' AND (p_quote->>'discount_amount_php')::NUMERIC != v_existing.discount_amount_php)
+               OR (p_quote ? 'customer_email' AND (p_quote->>'customer_email') != v_existing.customer_email)
+               OR (p_quote ? 'payment_terms' AND (p_quote->>'payment_terms') != v_existing.payment_terms)
+               OR (p_quote ? 'currency' AND (p_quote->>'currency') != v_existing.currency)
+               OR (p_items IS NOT NULL AND jsonb_array_length(p_items) > 0)
+            THEN
                 RETURN jsonb_build_object(
                     'success', false,
-                    'error', 'Quotation ' || v_id || ' is in immutable status (' || v_existing.status || '). Issued commercial quotations cannot be modified. Create a new revision (e.g. Rev ' || (v_existing.revision_number + 1)::TEXT || ') to make amendments.'
+                    'error', 'Quotation ' || v_id || ' is in immutable status (' || v_existing.status || '). Issued commercial quotations cannot be modified. Create a new revision to make amendments.'
                 );
             END IF;
         END IF;
     END IF;
 
-    -- 3. Enforce Approval Role in PostgreSQL
-    IF v_status = 'Approved' AND (v_existing IS NULL OR v_existing.status != 'Approved') THEN
-        IF current_user != 'service_role' AND auth.uid() IS NOT NULL THEN
-            SELECT role INTO v_actor_role FROM public.administrator_users WHERE id = auth.uid() AND is_active = true;
-            IF v_actor_role IS NULL OR v_actor_role NOT IN ('super_admin', 'operations_manager', 'sales_engineer') THEN
+    -- 5. Enforce Approval Authorization & Set Real Approver
+    IF v_status = 'Approved' THEN
+        IF v_existing IS NULL OR v_existing.status != 'Approved' THEN
+            IF v_actor_role NOT IN ('super_admin', 'operations_manager', 'sales_engineer') THEN
                 RETURN jsonb_build_object(
                     'success', false,
                     'error', 'Forbidden: Approving quotations requires super_admin, operations_manager, or sales_engineer role.'
                 );
             END IF;
+            v_approved_by := v_actor_id;
+            v_approved_at := v_now;
+        ELSE
+            v_approved_by := v_existing.approved_by;
+            v_approved_at := v_existing.approved_at;
         END IF;
+    ELSIF v_existing IS NOT NULL THEN
+        v_approved_by := v_existing.approved_by;
+        v_approved_at := v_existing.approved_at;
     END IF;
 
-    -- Upsert quotation record
+    -- 6. Upsert quotation record
     INSERT INTO public.quotations (
         id,
         base_quotation_id,
@@ -397,9 +558,9 @@ BEGIN
         COALESCE((p_quote->>'grand_total_php')::NUMERIC, 0),
         COALESCE(p_quote->>'customer_access_token', encode(gen_random_bytes(32), 'hex')),
         COALESCE((p_quote->>'token_expires_at')::TIMESTAMPTZ, v_now + INTERVAL '30 days'),
-        (p_quote->>'created_by')::UUID,
-        (p_quote->>'approved_by')::UUID,
-        (p_quote->>'approved_at')::TIMESTAMPTZ,
+        v_actor_id,
+        v_approved_by,
+        v_approved_at,
         (p_quote->>'sent_at')::TIMESTAMPTZ,
         p_quote->>'sent_to_email',
         v_now
@@ -437,14 +598,14 @@ BEGIN
         installation_fee_php = EXCLUDED.installation_fee_php,
         other_fees_php = EXCLUDED.other_fees_php,
         grand_total_php = EXCLUDED.grand_total_php,
-        approved_by = COALESCE(EXCLUDED.approved_by, public.quotations.approved_by),
-        approved_at = COALESCE(EXCLUDED.approved_at, public.quotations.approved_at),
+        approved_by = COALESCE(v_approved_by, public.quotations.approved_by),
+        approved_at = COALESCE(v_approved_at, public.quotations.approved_at),
         sent_at = COALESCE(EXCLUDED.sent_at, public.quotations.sent_at),
         sent_to_email = COALESCE(EXCLUDED.sent_to_email, public.quotations.sent_to_email),
         updated_at = v_now;
 
     -- Replace line items ONLY if not in an issued/immutable status
-    IF v_existing IS NULL OR v_existing.status NOT IN ('Sent', 'Accepted', 'Declined') THEN
+    IF v_existing IS NULL OR v_existing.status NOT IN ('Sent', 'Accepted', 'Declined', 'Expired', 'Cancelled') THEN
         DELETE FROM public.quotation_line_items WHERE quotation_id = v_id;
 
         IF p_items IS NOT NULL AND jsonb_array_length(p_items) > 0 THEN
@@ -488,17 +649,20 @@ BEGIN
     -- Record Audit Log entry
     INSERT INTO public.quotation_audit_logs (
         quotation_id,
+        actor_id,
         actor_name,
         action,
         details
     ) VALUES (
         v_id,
-        COALESCE(p_actor_name, 'System Administrator'),
+        v_actor_id,
+        v_actor_name,
         COALESCE(p_audit_action, 'Saved Quotation Record'),
         jsonb_build_object(
             'revision', v_rev,
             'status', v_status,
-            'items_count', jsonb_array_length(p_items),
+            'actor_role', v_actor_role,
+            'items_count', jsonb_array_length(COALESCE(p_items, '[]'::jsonb)),
             'timestamp', v_now
         )
     );
@@ -513,15 +677,19 @@ BEGIN
 END;
 $$;
 
+-- Restrict save_official_quotation to authenticated users and service_role
+REVOKE ALL ON FUNCTION public.save_official_quotation(JSONB, JSONB, TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.save_official_quotation(JSONB, JSONB, TEXT, TEXT) FROM anon;
 GRANT EXECUTE ON FUNCTION public.save_official_quotation(JSONB, JSONB, TEXT, TEXT) TO authenticated, service_role;
 
 -- 6.1 ATOMIC EMAIL-SEND CLAIMING PROCEDURE
--- Prevents duplicate sends under concurrent admin requests via FOR UPDATE row locking.
--- Generates collision-free server idempotency key.
+-- Restricted strictly to service_role (invoked via the authenticated Edge Function).
+-- Row-locks quotation, creates persistent claim token, enforces Approved status,
+-- and prevents duplicate concurrent sends.
 CREATE OR REPLACE FUNCTION public.claim_quotation_for_email_send(
     p_quotation_id TEXT,
     p_actor_id UUID,
-    p_force_resend BOOLEAN DEFAULT FALSE
+    p_is_resend BOOLEAN DEFAULT FALSE
 )
 RETURNS JSONB
 LANGUAGE plpgsql
@@ -533,23 +701,31 @@ DECLARE
     v_items JSONB;
     v_actor RECORD;
     v_idempotency_key TEXT;
+    v_claim_token UUID;
+    v_claim_expires_at TIMESTAMPTZ;
     v_now TIMESTAMPTZ := NOW();
 BEGIN
-    -- 1. Authorization check for actor
+    -- 1. Security check: Only service_role may invoke email-send claiming (called through secure Edge Function)
     IF current_user != 'service_role' THEN
-        SELECT id, role, is_active, full_name, email INTO v_actor
-        FROM public.administrator_users
-        WHERE id = p_actor_id AND is_active = true;
-
-        IF NOT FOUND OR v_actor.role NOT IN ('super_admin', 'operations_manager', 'sales_engineer') THEN
-            RETURN jsonb_build_object(
-                'success', false,
-                'error', 'Unauthorized: Quotation dispatch requires active super_admin, operations_manager, or sales_engineer role.'
-            );
-        END IF;
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'Unauthorized: Email claiming is restricted to service_role via the secure Edge Function.'
+        );
     END IF;
 
-    -- 2. Atomically lock quotation row
+    -- 2. Validate actor privileges against real administrator directory
+    SELECT id, role, is_active, full_name, email INTO v_actor
+    FROM public.administrator_users
+    WHERE id = p_actor_id AND is_active = true;
+
+    IF NOT FOUND OR v_actor.role NOT IN ('super_admin', 'operations_manager', 'sales_engineer') THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'Unauthorized: Quotation dispatch requires active super_admin, operations_manager, or sales_engineer role.'
+        );
+    END IF;
+
+    -- 3. Atomically lock quotation row
     SELECT * INTO v_quote
     FROM public.quotations
     WHERE id = p_quotation_id
@@ -559,34 +735,59 @@ BEGIN
         RETURN jsonb_build_object('success', false, 'error', 'Quotation ' || p_quotation_id || ' not found.');
     END IF;
 
-    -- 3. Validate status
-    IF v_quote.status = 'Draft' THEN
-        RETURN jsonb_build_object('success', false, 'error', 'Cannot send quotation in Draft status. Quotation must be officially Approved first.');
+    -- 4. Status validation (Only Approved quotations may be initially sent)
+    IF v_quote.status IN ('Draft', 'Pending Approval') THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'Cannot dispatch quotation in ' || v_quote.status || ' status. Only officially Approved quotations may be sent.'
+        );
     END IF;
 
-    IF v_quote.status IN ('Cancelled', 'Expired') THEN
-        RETURN jsonb_build_object('success', false, 'error', 'Cannot send quotation with status: ' || v_quote.status || '. Create a new revision.');
+    IF v_quote.status IN ('Cancelled', 'Expired', 'Accepted', 'Declined') THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'Cannot dispatch quotation with closed status: ' || v_quote.status || '. Create a new revision.'
+        );
     END IF;
 
-    -- Check if already sent and not force_resend
-    IF v_quote.status = 'Sent' AND COALESCE(v_quote.email_delivery_count, 0) > 0 AND NOT COALESCE(p_force_resend, false) THEN
+    -- Check if already sent and not authorized resend
+    IF v_quote.status = 'Sent' AND COALESCE(v_quote.email_delivery_count, 0) > 0 AND NOT COALESCE(p_is_resend, false) THEN
         RETURN jsonb_build_object(
             'success', false,
             'already_sent', true,
-            'error', 'Quotation ' || v_quote.id || ' was already dispatched on ' || to_char(v_quote.sent_at, 'YYYY-MM-DD HH24:MI:SS') || '. Specify force_resend to re-dispatch.',
+            'error', 'Quotation ' || v_quote.id || ' was already dispatched on ' || to_char(v_quote.sent_at, 'YYYY-MM-DD HH24:MI:SS') || '. Explicit resend authorization required.',
             'last_resend_email_id', v_quote.last_resend_email_id
         );
     END IF;
 
-    -- 4. Generate collision-free server idempotency key
+    -- 5. Persistent Concurrency Lock: Prevent duplicate concurrent sends
+    IF v_quote.email_dispatch_status = 'sending' 
+       AND v_quote.email_claim_expires_at IS NOT NULL 
+       AND v_quote.email_claim_expires_at > v_now THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'in_progress', true,
+            'error', 'Quotation email dispatch is currently in progress by another request. Please wait.',
+            'claim_expires_at', v_quote.email_claim_expires_at
+        );
+    END IF;
+
+    -- 6. Generate active claim token & stable collision-free server idempotency key
+    v_claim_token := gen_random_uuid();
+    v_claim_expires_at := v_now + INTERVAL '5 minutes';
     v_idempotency_key := 'zez_qsend_' || v_quote.id || '_r' || v_quote.revision_number || '_' || to_char(v_now, 'YYYYMMDD_HH24MISS') || '_' || encode(gen_random_bytes(6), 'hex');
 
+    -- Record claim state in database
     UPDATE public.quotations
-    SET last_email_idempotency_key = v_idempotency_key,
+    SET email_dispatch_status = 'sending',
+        email_claim_token = v_claim_token,
+        email_claim_expires_at = v_claim_expires_at,
+        email_claim_actor_id = p_actor_id,
+        last_email_idempotency_key = v_idempotency_key,
         updated_at = v_now
     WHERE id = v_quote.id;
 
-    -- 5. Fetch line items
+    -- 7. Fetch sanitized line items
     SELECT COALESCE(jsonb_agg(
         jsonb_build_object(
             'id', id,
@@ -609,6 +810,7 @@ BEGIN
 
     RETURN jsonb_build_object(
         'success', true,
+        'claim_token', v_claim_token,
         'idempotency_key', v_idempotency_key,
         'quotation', to_jsonb(v_quote),
         'items', v_items
@@ -616,11 +818,19 @@ BEGIN
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.claim_quotation_for_email_send(TEXT, UUID, BOOLEAN) TO authenticated, service_role;
+-- Restrict to service_role ONLY
+REVOKE ALL ON FUNCTION public.claim_quotation_for_email_send(TEXT, UUID, BOOLEAN) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.claim_quotation_for_email_send(TEXT, UUID, BOOLEAN) FROM anon;
+REVOKE ALL ON FUNCTION public.claim_quotation_for_email_send(TEXT, UUID, BOOLEAN) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.claim_quotation_for_email_send(TEXT, UUID, BOOLEAN) TO service_role;
 
 -- 6.2 FINALIZE QUOTATION EMAIL SEND PROCEDURE
+-- Restricted to service_role. Requires matching active claim token and validates Resend ID.
+DROP FUNCTION IF EXISTS public.finalize_quotation_email_send(TEXT, UUID, TEXT, TEXT, TEXT, BOOLEAN);
+
 CREATE OR REPLACE FUNCTION public.finalize_quotation_email_send(
     p_quotation_id TEXT,
+    p_claim_token UUID,
     p_actor_id UUID,
     p_resend_id TEXT,
     p_idempotency_key TEXT,
@@ -638,9 +848,40 @@ DECLARE
     v_now TIMESTAMPTZ := NOW();
     v_next_count INT;
 BEGIN
+    -- 1. Security check: Only service_role may finalize email dispatches
+    IF current_user != 'service_role' THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'Unauthorized: Email finalization is restricted to service_role.'
+        );
+    END IF;
+
+    -- 2. Validate Resend result
+    IF p_resend_id IS NULL OR trim(p_resend_id) = '' OR length(trim(p_resend_id)) < 4 THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'Invalid or missing Resend delivery ID.'
+        );
+    END IF;
+
+    -- 3. Lock row and verify claim token
     SELECT * INTO v_quote FROM public.quotations WHERE id = p_quotation_id FOR UPDATE;
     IF NOT FOUND THEN
-        RETURN jsonb_build_object('success', false, 'error', 'Quotation not found.');
+        RETURN jsonb_build_object('success', false, 'error', 'Quotation ' || p_quotation_id || ' not found.');
+    END IF;
+
+    IF v_quote.email_claim_token IS NULL OR v_quote.email_claim_token != p_claim_token THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'Claim token mismatch or expired. Concurrent dispatch collision avoided.'
+        );
+    END IF;
+
+    IF v_quote.email_claim_expires_at IS NOT NULL AND v_quote.email_claim_expires_at < v_now THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'Quotation email claim has expired.'
+        );
     END IF;
 
     IF p_actor_id IS NOT NULL THEN
@@ -649,8 +890,12 @@ BEGIN
 
     v_next_count := COALESCE(v_quote.email_delivery_count, 0) + 1;
 
+    -- 4. Finalize quotation into Sent status and release claim
     UPDATE public.quotations
     SET status = 'Sent',
+        email_dispatch_status = 'sent',
+        email_claim_token = NULL,
+        email_claim_expires_at = NULL,
         sent_at = v_now,
         sent_to_email = p_recipient,
         last_resend_email_id = p_resend_id,
@@ -659,6 +904,7 @@ BEGIN
         updated_at = v_now
     WHERE id = p_quotation_id;
 
+    -- 5. Audit Log
     INSERT INTO public.quotation_audit_logs (
         quotation_id,
         actor_id,
@@ -680,11 +926,81 @@ BEGIN
         )
     );
 
-    RETURN jsonb_build_object('success', true, 'delivery_count', v_next_count);
+    RETURN jsonb_build_object(
+        'success', true,
+        'delivery_count', v_next_count,
+        'resend_id', p_resend_id,
+        'status', 'Sent'
+    );
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.finalize_quotation_email_send(TEXT, UUID, TEXT, TEXT, TEXT, BOOLEAN) TO authenticated, service_role;
+-- Restrict to service_role ONLY
+REVOKE ALL ON FUNCTION public.finalize_quotation_email_send(TEXT, UUID, UUID, TEXT, TEXT, TEXT, BOOLEAN) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.finalize_quotation_email_send(TEXT, UUID, UUID, TEXT, TEXT, TEXT, BOOLEAN) FROM anon;
+REVOKE ALL ON FUNCTION public.finalize_quotation_email_send(TEXT, UUID, UUID, TEXT, TEXT, TEXT, BOOLEAN) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.finalize_quotation_email_send(TEXT, UUID, UUID, TEXT, TEXT, TEXT, BOOLEAN) TO service_role;
+
+-- 6.3 FAIL / RELEASE QUOTATION EMAIL CLAIM PROCEDURE
+-- Restores status to 'failed' and releases claim token if Resend fails.
+CREATE OR REPLACE FUNCTION public.fail_quotation_email_send(
+    p_quotation_id TEXT,
+    p_claim_token UUID,
+    p_error_message TEXT DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+DECLARE
+    v_quote RECORD;
+BEGIN
+    IF current_user != 'service_role' THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Unauthorized: Releasing claim is restricted to service_role.');
+    END IF;
+
+    SELECT * INTO v_quote FROM public.quotations WHERE id = p_quotation_id FOR UPDATE;
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Quotation not found.');
+    END IF;
+
+    -- If token matches, release claim and mark failed
+    IF v_quote.email_claim_token IS NOT NULL AND v_quote.email_claim_token = p_claim_token THEN
+        UPDATE public.quotations
+        SET email_dispatch_status = 'failed',
+            email_claim_token = NULL,
+            email_claim_expires_at = NULL,
+            updated_at = NOW()
+        WHERE id = p_quotation_id;
+
+        INSERT INTO public.quotation_audit_logs (
+            quotation_id,
+            actor_name,
+            action,
+            details
+        ) VALUES (
+            p_quotation_id,
+            'System Dispatcher',
+            'Quotation Email Dispatch Failed',
+            jsonb_build_object(
+                'error', COALESCE(p_error_message, 'Unknown error during dispatch'),
+                'timestamp', NOW()
+            )
+        );
+
+        RETURN jsonb_build_object('success', true, 'status', 'failed');
+    END IF;
+
+    RETURN jsonb_build_object('success', false, 'error', 'Claim token did not match current active claim.');
+END;
+$$;
+
+-- Restrict to service_role ONLY
+REVOKE ALL ON FUNCTION public.fail_quotation_email_send(TEXT, UUID, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.fail_quotation_email_send(TEXT, UUID, TEXT) FROM anon;
+REVOKE ALL ON FUNCTION public.fail_quotation_email_send(TEXT, UUID, TEXT) FROM authenticated;
+GRANT EXECUTE ON FUNCTION public.fail_quotation_email_send(TEXT, UUID, TEXT) TO service_role;
 
 -- 7. SECURE CUSTOMER RPC: GET SANITIZED QUOTATION BY TOKEN
 -- Enforces:
@@ -814,6 +1130,7 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION public.get_public_quotation_by_token(TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.get_public_quotation_by_token(TEXT) TO anon, authenticated, service_role;
 
 -- 8. SECURE CUSTOMER RPC: RESPOND TO QUOTATION
@@ -901,4 +1218,5 @@ BEGIN
 END;
 $$;
 
+REVOKE ALL ON FUNCTION public.submit_customer_quotation_response(TEXT, TEXT, TEXT, TEXT) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION public.submit_customer_quotation_response(TEXT, TEXT, TEXT, TEXT) TO anon, authenticated, service_role;

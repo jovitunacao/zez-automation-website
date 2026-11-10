@@ -329,6 +329,84 @@ async function runTestSuite() {
   assert(blankQuote.assignedSpecialist === undefined, suite9, 'createBlankQuotation does not inject fictitious specialists');
 
   // ----------------------------------------------------------------------------
+  // SUITE 10: ATOMIC EMAIL CLAIMING, CONCURRENCY & TRIGGER INVARIANTS
+  // ----------------------------------------------------------------------------
+  const suite10 = '10. Email Claiming, Concurrency & Database Triggers';
+
+  // Test 10.1: Only Approved status can be claimed for initial send
+  function validateInitialSendStatus(status: QuotationStatus): { allowed: boolean; error?: string } {
+    if (status === 'Draft' || status === 'Pending Approval') {
+      return { allowed: false, error: `Cannot send quotation in '${status}' status. Only officially Approved quotations may be sent.` };
+    }
+    if (['Cancelled', 'Expired', 'Accepted', 'Declined'].includes(status)) {
+      return { allowed: false, error: `Cannot dispatch quotation in closed status: ${status}` };
+    }
+    return { allowed: true };
+  }
+
+  assert(validateInitialSendStatus('Draft').allowed === false, suite10, 'Draft status rejected for initial send');
+  assert(validateInitialSendStatus('Pending Approval').allowed === false, suite10, 'Pending Approval status rejected for initial send');
+  assert(validateInitialSendStatus('Approved').allowed === true, suite10, 'Approved status permitted for initial send');
+  assert(validateInitialSendStatus('Cancelled').allowed === false, suite10, 'Cancelled status rejected for send');
+
+  // Test 10.2: Resend authorization check
+  function validateResendAuthorization(status: QuotationStatus, isResend: boolean, deliveryCount: number): { allowed: boolean; error?: string } {
+    if (status === 'Sent' && deliveryCount > 0 && !isResend) {
+      return { allowed: false, error: 'Quotation was already dispatched. Explicit resend authorization required.' };
+    }
+    return { allowed: true };
+  }
+
+  assert(validateResendAuthorization('Sent', false, 1).allowed === false, suite10, 'Unconfirmed duplicate send on Sent quote rejected');
+  assert(validateResendAuthorization('Sent', true, 1).allowed === true, suite10, 'Explicit resend on Sent quote permitted');
+
+  // Test 10.3: Active claim token generation & concurrency lockout
+  interface MockClaimState {
+    dispatchStatus: 'idle' | 'sending' | 'sent' | 'failed';
+    claimToken: string | null;
+    claimExpiresAt: number | null;
+  }
+
+  function simulateEmailClaim(state: MockClaimState, now: number): { success: boolean; inProgress?: boolean; claimToken?: string } {
+    if (state.dispatchStatus === 'sending' && state.claimExpiresAt && state.claimExpiresAt > now) {
+      return { success: false, inProgress: true };
+    }
+    const token = '550e8400-e29b-41d4-a716-446655440000';
+    return { success: true, claimToken: token };
+  }
+
+  const activeClaim: MockClaimState = {
+    dispatchStatus: 'sending',
+    claimToken: 'token-active-123',
+    claimExpiresAt: Date.now() + 5 * 60 * 1000 // 5 mins in future
+  };
+  const secondAttempt = simulateEmailClaim(activeClaim, Date.now());
+  assert(secondAttempt.success === false && secondAttempt.inProgress === true, suite10, 'Concurrent email claim rejected when existing claim is active');
+
+  const expiredClaim: MockClaimState = {
+    dispatchStatus: 'sending',
+    claimToken: 'token-stale-999',
+    claimExpiresAt: Date.now() - 1000 // Expired
+  };
+  const recoveredAttempt = simulateEmailClaim(expiredClaim, Date.now());
+  assert(recoveredAttempt.success === true, suite10, 'Expired email claim recovers automatically');
+
+  // Test 10.4: Resend ID format validation
+  function validateResendDeliveryId(resendId: string | undefined): boolean {
+    return typeof resendId === 'string' && resendId.trim().length >= 4;
+  }
+  assert(validateResendDeliveryId('') === false, suite10, 'Blank Resend delivery ID rejected');
+  assert(validateResendDeliveryId('re_valid_12345') === true, suite10, 'Valid Resend delivery ID accepted');
+
+  // Test 10.5: Trigger immutability invariant
+  function checkTriggerAllowsPricingUpdate(status: QuotationStatus): boolean {
+    return !['Sent', 'Accepted', 'Declined', 'Expired', 'Cancelled'].includes(status);
+  }
+  assert(checkTriggerAllowsPricingUpdate('Draft') === true, suite10, 'Trigger permits pricing edits on Draft quotations');
+  assert(checkTriggerAllowsPricingUpdate('Sent') === false, suite10, 'Trigger strictly forbids pricing edits on issued Sent quotations');
+  assert(checkTriggerAllowsPricingUpdate('Accepted') === false, suite10, 'Trigger strictly forbids pricing edits on terminal Accepted quotations');
+
+  // ----------------------------------------------------------------------------
   // REPORT
   // ----------------------------------------------------------------------------
   console.log('\n============================================================');

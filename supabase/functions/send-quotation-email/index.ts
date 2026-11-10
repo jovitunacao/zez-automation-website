@@ -117,13 +117,13 @@ serve(async (req: Request) => {
       );
     }
 
-    // 3. Atomically claim quotation for sending (Row lock + Server-side idempotency key + Status check)
+    // 3. Atomically claim quotation for sending (Row lock + Server-side idempotency key + Status check + Claim Token)
     const { data: claimData, error: claimError } = await supabaseAdmin.rpc(
       "claim_quotation_for_email_send",
       {
         p_quotation_id: quotation_id,
         p_actor_id: adminUser.id,
-        p_force_resend: Boolean(force_resend),
+        p_is_resend: Boolean(force_resend),
       }
     );
 
@@ -135,6 +135,18 @@ serve(async (req: Request) => {
     }
 
     if (!claimData || claimData.success === false) {
+      if (claimData?.in_progress) {
+        return new Response(
+          JSON.stringify({
+            success: false,
+            in_progress: true,
+            error: claimData.error || "Quotation email dispatch is currently in progress by another request. Please wait.",
+            claim_expires_at: claimData.claim_expires_at,
+          }),
+          { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+
       const statusCode = claimData?.already_sent ? 200 : 400;
       return new Response(
         JSON.stringify(claimData || { success: false, error: "Failed to claim quotation for email dispatch." }),
@@ -145,11 +157,19 @@ serve(async (req: Request) => {
     const quote = claimData.quotation;
     const items = claimData.items || [];
     const serverIdempotencyKey = claimData.idempotency_key;
+    const claimToken = claimData.claim_token;
 
     // 4. Recipient Security: Lock recipient strictly to quote's recorded customer email
     const targetRecipient = (quote.customer_email || "").trim();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(targetRecipient)) {
+      if (claimToken) {
+        await supabaseAdmin.rpc("fail_quotation_email_send", {
+          p_quotation_id: quote.id,
+          p_claim_token: claimToken,
+          p_error_message: `Invalid recipient address: ${targetRecipient}`,
+        });
+      }
       return new Response(
         JSON.stringify({ success: false, error: `Invalid customer email address in quotation record: '${targetRecipient}'.` }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
@@ -333,19 +353,27 @@ serve(async (req: Request) => {
 
     const resendData = await resendRes.json();
 
-    if (!resendRes.ok) {
+    if (!resendRes.ok || !resendData?.id) {
       console.error("[ZEZ Edge Function] Resend email failed:", resendData);
+      if (claimToken) {
+        await supabaseAdmin.rpc("fail_quotation_email_send", {
+          p_quotation_id: quote.id,
+          p_claim_token: claimToken,
+          p_error_message: resendData?.message || "Failed to dispatch email via Resend API",
+        });
+      }
       return new Response(
-        JSON.stringify({ success: false, error: resendData.message || "Failed to dispatch email via Resend." }),
+        JSON.stringify({ success: false, error: resendData?.message || "Failed to dispatch email via Resend." }),
         { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
 
-    // 9. Finalize email send transactionally via database RPC
+    // 9. Finalize email send transactionally via database RPC (with active claim token validation)
     const { data: finalizeData, error: finalizeError } = await supabaseAdmin.rpc(
       "finalize_quotation_email_send",
       {
         p_quotation_id: quote.id,
+        p_claim_token: claimToken,
         p_actor_id: adminUser.id,
         p_resend_id: resendData.id,
         p_idempotency_key: serverIdempotencyKey,
@@ -354,8 +382,16 @@ serve(async (req: Request) => {
       }
     );
 
-    if (finalizeError) {
-      console.warn("[ZEZ Edge Function] Notice during finalize_quotation_email_send:", finalizeError.message);
+    if (finalizeError || finalizeData?.success === false) {
+      console.error("[ZEZ Edge Function] Finalize RPC error:", finalizeError?.message || finalizeData?.error);
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: finalizeError?.message || finalizeData?.error || "Failed to finalize quotation dispatch.",
+          resend_id: resendData.id,
+        }),
+        { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     return new Response(
