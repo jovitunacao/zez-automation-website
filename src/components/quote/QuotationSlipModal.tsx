@@ -1,17 +1,17 @@
 import React, { useEffect } from 'react';
 import { 
   Printer, 
+  Download,
   X, 
   Building2, 
-  Calendar, 
   FileCheck,
-  ShieldAlert,
   Info
 } from 'lucide-react';
 import { QuotationRequest } from '../../types';
 import { Logo } from '../brand/Logo';
 import { useApp } from '../../context/AppContext';
 import { getDisplayBrand } from '../../utils/productUtils';
+import { downloadRfqPdf } from '../../services/rfqPdfService';
 
 interface QuotationSlipModalProps {
   rfq: QuotationRequest | null;
@@ -35,6 +35,10 @@ export const QuotationSlipModal: React.FC<QuotationSlipModalProps> = ({ rfq, onC
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleDownloadPdf = () => {
+    downloadRfqPdf(rfq, siteSettings);
   };
 
   const formattedDate = new Date(rfq.createdAt).toLocaleDateString('en-US', {
@@ -61,11 +65,20 @@ export const QuotationSlipModal: React.FC<QuotationSlipModalProps> = ({ rfq, onC
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={handlePrint}
+              onClick={handleDownloadPdf}
               className="px-3.5 py-1.5 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors shadow-sm cursor-pointer"
+              title="Download clean A4 PDF file"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download PDF</span>
+            </button>
+            <button
+              onClick={handlePrint}
+              className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Print browser view"
             >
               <Printer className="w-4 h-4" />
-              <span>Print A4 Slip</span>
+              <span className="hidden sm:inline">Print Slip</span>
             </button>
             <button
               onClick={onClose}
@@ -117,7 +130,7 @@ export const QuotationSlipModal: React.FC<QuotationSlipModalProps> = ({ rfq, onC
             </div>
           </div>
 
-          {/* Important Distinction Notice (Req 6) */}
+          {/* Important Distinction Notice (Req 6 & 7) */}
           <div className="my-2.5 print:my-2 p-2.5 print:p-2 bg-amber-50/80 print:bg-gray-50 border border-amber-300 print:border-gray-300 rounded text-[10.5px] print:text-[10px] text-gray-700 leading-relaxed">
             <div className="flex items-start gap-1.5">
               <Info className="w-4 h-4 text-amber-700 shrink-0 mt-0.5 no-print" />
@@ -130,8 +143,8 @@ export const QuotationSlipModal: React.FC<QuotationSlipModalProps> = ({ rfq, onC
             </div>
           </div>
 
-          {/* Customer & Procurement Metadata */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 my-2.5 print:my-2 p-3 print:p-2.5 bg-gray-50 rounded-lg border border-gray-200 text-xs">
+          {/* Customer & Procurement Metadata (Guaranteed 2-column grid in print) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 print:grid-cols-2 gap-3 sm:gap-4 my-2.5 print:my-2 p-3 print:p-2.5 bg-gray-50 rounded-lg border border-gray-200 text-xs">
             <div>
               <div className="text-[10.5px] font-bold text-gray-600 uppercase tracking-wider mb-1 flex items-center gap-1">
                 <Building2 className="w-3.5 h-3.5 text-[#B5121B]" />
@@ -169,8 +182,8 @@ export const QuotationSlipModal: React.FC<QuotationSlipModalProps> = ({ rfq, onC
           </div>
 
           {/* Itemized Specification Table */}
-          <div className="my-2.5 print:my-2 overflow-x-auto">
-            <table className="w-full text-left text-xs border border-gray-200">
+          <div className="my-2.5 print:my-2 overflow-x-auto print:overflow-visible">
+            <table className="w-full text-left text-xs border border-gray-200 print-table">
               <thead className="bg-[#292F36] text-white">
                 <tr>
                   <th className="py-2 px-2.5 font-semibold text-center w-8">#</th>
@@ -297,21 +310,29 @@ export const QuotationSlipModal: React.FC<QuotationSlipModalProps> = ({ rfq, onC
         </div>
 
         {/* Modal Bottom Bar (Screen only, hidden when printing) */}
-        <div className="p-3.5 sm:p-4 bg-gray-50 border-t border-gray-200 flex items-center justify-between no-print">
-          <p className="text-xs text-gray-500">
+        <div className="p-3.5 sm:p-4 bg-gray-50 border-t border-gray-200 flex flex-col sm:flex-row items-center justify-between gap-3 no-print">
+          <p className="text-xs text-gray-500 text-center sm:text-left">
             Inquiry Ref: <strong>{rfq.id}</strong> · Need modifications? Contact us at <strong>{siteSettings.phonePrimary}</strong>
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            <button
+              onClick={handleDownloadPdf}
+              className="px-4 py-2 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer shadow-sm"
+              title="Download clean A4 PDF file"
+            >
+              <Download className="w-4 h-4" />
+              <span>Download PDF</span>
+            </button>
             <button
               onClick={handlePrint}
-              className="px-4 py-2 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer shadow-sm"
+              className="px-3.5 py-2 bg-gray-700 hover:bg-gray-600 text-white text-xs font-bold rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
             >
               <Printer className="w-4 h-4" />
-              <span>Print A4 Slip</span>
+              <span>Print Slip</span>
             </button>
             <button
               onClick={onClose}
-              className="px-4 py-2 border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-bold rounded-lg transition-colors cursor-pointer"
+              className="px-3.5 py-2 border border-gray-300 text-gray-700 hover:bg-gray-100 text-xs font-bold rounded-lg transition-colors cursor-pointer"
             >
               Close
             </button>

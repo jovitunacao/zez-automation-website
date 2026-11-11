@@ -29,6 +29,7 @@ import {
   duplicateAsRevision 
 } from '../services/quotationService';
 import { generateQuotationPdf, generateQuotationPdfBase64 } from '../services/quotationPdfService';
+import { generateRfqPdf, generateRfqPdfBase64 } from '../services/rfqPdfService';
 import { Quotation, QuotationRequest, QuotationStatus } from '../types';
 
 interface TestResult {
@@ -218,6 +219,77 @@ async function runTestSuite() {
 
   const base64Pdf = generateQuotationPdfBase64(baseQuote);
   assert(typeof base64Pdf === 'string' && base64Pdf.length > 500, suite5, 'Generated non-empty base64 PDF stream for Resend attachment');
+
+  // Test 5.2: Dedicated RFQ A4 PDF Generator
+  const sampleRfq: QuotationRequest = {
+    id: 'ZEZ-RFQ-2026-1042',
+    createdAt: '2026-11-10T08:00:00Z',
+    status: 'Under Review',
+    customer: {
+      fullName: 'Engr. Juan Dela Cruz',
+      companyName: 'Apex Data & Automation Systems Inc.',
+      email: 'juan@apexsystems.ph',
+      mobileNumber: '+63 917 555 1234',
+      deliveryCityProvince: 'Davao City, Davao del Sur',
+      customerType: 'Company',
+      preferredContactMethod: 'Email',
+      tinNumber: '123-456-789-000'
+    },
+    items: [
+      {
+        productId: 'prod-1',
+        productName: 'Schneider Electric Acti9 iC60N 3P 32A Miniature Circuit Breaker',
+        model: 'A9F74332',
+        brand: 'Schneider Electric',
+        sku: 'SE-MCB-32A',
+        mainImage: '/sample.jpg',
+        quantity: 6,
+        unitPricePhp: 1850,
+        subtotalPhp: 11100
+      },
+      {
+        productId: 'prod-2',
+        productName: 'Delta Electronics VFD-E Series 5.5kW Sensorless Vector AC Drive',
+        model: 'VFD055E43A',
+        brand: 'Delta Electronics',
+        sku: 'DLT-VFD-5.5KW',
+        mainImage: '/sample.jpg',
+        quantity: 2,
+        unitPricePhp: 28500,
+        subtotalPhp: 57000
+      },
+      {
+        productId: 'prod-3',
+        productName: 'Autonics TC4S Dual PID Temperature Controller 48x48mm Relay Output',
+        model: 'TC4S-14R',
+        brand: 'Autonics',
+        sku: 'AUT-TC4S-14R',
+        mainImage: '/sample.jpg',
+        quantity: 4,
+        unitPricePhp: 3200,
+        subtotalPhp: 12800
+      }
+    ],
+    totalEstimatedPhp: 80900,
+    validUntil: '2026-12-10T08:00:00Z'
+  };
+
+  const rfqPdfDoc = generateRfqPdf(sampleRfq);
+  assert(rfqPdfDoc !== null && rfqPdfDoc !== undefined, suite5, 'jsPDF RFQ document instance created successfully');
+  assert(rfqPdfDoc.getNumberOfPages() === 1, suite5, 'Three-item RFQ fits strictly on exactly 1 A4 page');
+
+  const rfqBase64 = generateRfqPdfBase64(sampleRfq);
+  assert(typeof rfqBase64 === 'string' && rfqBase64.length > 500, suite5, 'Generated non-empty base64 PDF stream for RFQ acknowledgment');
+
+  // Test 5.3: Long RFQ pagination test
+  const longItems = Array.from({ length: 16 }, (_, i) => ({
+    ...sampleRfq.items[0],
+    productId: `prod-${i}`,
+    productName: `Industrial Terminal Block Component #${i + 1}`
+  }));
+  const longRfq: QuotationRequest = { ...sampleRfq, items: longItems };
+  const longPdfDoc = generateRfqPdf(longRfq);
+  assert(longPdfDoc.getNumberOfPages() >= 2, suite5, 'Long RFQ with 16 items automatically paginates without errors');
 
   // ----------------------------------------------------------------------------
   // SUITE 6: STATUS TRANSITION STATE MACHINE RULES
