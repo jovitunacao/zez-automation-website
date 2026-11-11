@@ -85,7 +85,8 @@ import {
   fetchRfqNotificationLogsFromSupabase,
   retryFailedRfqNotification,
   dispatchPendingRfqNotifications,
-  fetchNotificationQuotaStatsFromSupabase
+  fetchNotificationQuotaStatsFromSupabase,
+  fetchAdminRfqByIdFromSupabase
 } from '../services/supabaseService';
 import { 
   convertRfqToQuotation, 
@@ -128,8 +129,30 @@ export const AdminDashboardView: React.FC = () => {
     refreshProducts,
     supabaseSeedPending,
     databaseProductCount,
-    productsError
+    productsError,
+    pendingAdminTarget,
+    clearPendingAdminTarget
   } = useApp();
+
+  // Deep-Link & Targeted RFQ state (from email URL ?view=admin&tab=rfqs&rfq=...)
+  const [targetedRfqId, setTargetedRfqId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const urlRfq = params.get('rfq');
+      if (urlRfq) return urlRfq;
+    }
+    return pendingAdminTarget?.rfqId || null;
+  });
+  const [deepLinkedRfq, setDeepLinkedRfq] = useState<QuotationRequest | null>(null);
+  const [deepLinkLoading, setDeepLinkLoading] = useState(false);
+  const [deepLinkError, setDeepLinkError] = useState<string | null>(null);
+  const [highlightedRfqId, setHighlightedRfqId] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      return params.get('rfq') || null;
+    }
+    return pendingAdminTarget?.rfqId || null;
+  });
 
   // Admin login states
   const [loginEmail, setLoginEmail] = useState('');
@@ -141,7 +164,52 @@ export const AdminDashboardView: React.FC = () => {
   // Product management error & loading states
   const [prodModalError, setProdModalError] = useState<string | null>(null);
   const [prodModalLoading, setProdModalLoading] = useState(false);
-  const [activeAdminTab, setActiveAdminTab] = useState<'overview' | 'rfqs' | 'quotations' | 'products' | 'categories' | 'admins' | 'notifications' | 'settings'>('overview');
+  const [activeAdminTab, setActiveAdminTab] = useState<'overview' | 'rfqs' | 'quotations' | 'products' | 'categories' | 'admins' | 'notifications' | 'settings'>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get('tab');
+      const rfqParam = params.get('rfq');
+      if (rfqParam) return 'rfqs';
+      if (tabParam && ['overview', 'rfqs', 'quotations', 'products', 'categories', 'admins', 'notifications', 'settings'].includes(tabParam)) {
+        return tabParam as any;
+      }
+    }
+    if (pendingAdminTarget?.rfqId) return 'rfqs';
+    if (pendingAdminTarget?.tab && ['overview', 'rfqs', 'quotations', 'products', 'categories', 'admins', 'notifications', 'settings'].includes(pendingAdminTarget.tab)) {
+      return pendingAdminTarget.tab as any;
+    }
+    return 'overview';
+  });
+
+  const handleTabChange = (tab: 'overview' | 'rfqs' | 'quotations' | 'products' | 'categories' | 'admins' | 'notifications' | 'settings') => {
+    setActiveAdminTab(tab);
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      params.set('view', 'admin');
+      params.set('tab', tab);
+      if (tab !== 'rfqs') {
+        params.delete('rfq');
+      }
+      const newSearch = `?${params.toString()}`;
+      window.history.replaceState({}, '', newSearch);
+    }
+  };
+
+  const handleDismissDeepLink = () => {
+    setTargetedRfqId(null);
+    setDeepLinkedRfq(null);
+    setHighlightedRfqId(null);
+    setDeepLinkError(null);
+    clearPendingAdminTarget();
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      params.delete('rfq');
+      params.set('view', 'admin');
+      params.set('tab', 'rfqs');
+      const newSearch = `?${params.toString()}`;
+      window.history.replaceState({}, '', newSearch);
+    }
+  };
 
   // Official B2B Quotations state
   const [quotations, setQuotations] = useState<Quotation[]>([]);
@@ -900,6 +968,9 @@ export const AdminDashboardView: React.FC = () => {
     const newQuote = convertRfqToQuotation(rfq, adminUser);
     setSelectedQuotationForEdit(newQuote);
     setIsQuotationMakerOpen(true);
+    if (targetedRfqId && rfq.id.toLowerCase() === targetedRfqId.toLowerCase()) {
+      clearPendingAdminTarget();
+    }
   };
 
   const handleCreateNewQuote = () => {
@@ -956,6 +1027,72 @@ export const AdminDashboardView: React.FC = () => {
     }
   }, [isAdminAuthenticated]);
 
+  // Resolve targeted RFQ from deep link when authenticated
+  useEffect(() => {
+    if (!isAdminAuthenticated || !targetedRfqId) return;
+
+    // 1. Try to find in already loaded rfqRequests
+    const match = rfqRequests.find(r => r.id.toLowerCase() === targetedRfqId.toLowerCase());
+    if (match) {
+      setDeepLinkedRfq(match);
+      setHighlightedRfqId(match.id);
+      setDeepLinkLoading(false);
+      setDeepLinkError(null);
+      return;
+    }
+
+    // 2. If rfqs are loading, show loading status
+    if (rfqsLoading) {
+      setDeepLinkLoading(true);
+      return;
+    }
+
+    // 3. If not found in rfqRequests and rfqs are not loading, query Supabase directly
+    let active = true;
+    const fetchSpecificRfq = async () => {
+      setDeepLinkLoading(true);
+      setDeepLinkError(null);
+      try {
+        const res = await fetchAdminRfqByIdFromSupabase(targetedRfqId);
+        if (!active) return;
+        if (res.data) {
+          setDeepLinkedRfq(res.data);
+          setHighlightedRfqId(res.data.id);
+        } else {
+          setDeepLinkError(res.error || `Quotation Request "${targetedRfqId}" could not be located in the Supabase database. It may have been archived or the reference ID is invalid.`);
+          setDeepLinkedRfq(null);
+        }
+      } catch (err: any) {
+        if (!active) return;
+        setDeepLinkError(err.message || `Failed to retrieve RFQ "${targetedRfqId}".`);
+        setDeepLinkedRfq(null);
+      } finally {
+        if (active) {
+          setDeepLinkLoading(false);
+        }
+      }
+    };
+
+    fetchSpecificRfq();
+
+    return () => {
+      active = false;
+    };
+  }, [isAdminAuthenticated, targetedRfqId, rfqRequests, rfqsLoading]);
+
+  // Smooth scroll to targeted RFQ in the list once highlighted
+  useEffect(() => {
+    if (highlightedRfqId && activeAdminTab === 'rfqs') {
+      const timer = setTimeout(() => {
+        const elem = document.getElementById(`rfq-${highlightedRfqId}`);
+        if (elem) {
+          elem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [highlightedRfqId, activeAdminTab]);
+
   // If not authenticated, render the secure administrator login gate
   if (!isAdminAuthenticated) {
     return (
@@ -970,6 +1107,19 @@ export const AdminDashboardView: React.FC = () => {
           </div>
 
           <div className="p-6 space-y-5">
+            {targetedRfqId && (
+              <div className="bg-amber-50 border border-amber-200 p-3.5 rounded-lg text-xs text-amber-900 flex items-start gap-2.5 shadow-2xs">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-bold text-amber-900">RFQ Deep-Link Protected</p>
+                  <p className="text-amber-800 text-[11px] leading-relaxed">
+                    Administrator authentication required to review and prepare official quotation for request{' '}
+                    <span className="font-mono font-bold text-amber-950 bg-amber-100 px-1.5 py-0.5 rounded border border-amber-300">{targetedRfqId}</span>.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {loginError && (
               <div className="bg-red-50 border border-red-200 p-3 rounded-lg text-xs text-red-700 flex items-start gap-2">
                 <AlertCircle className="w-4 h-4 text-[#B5121B] shrink-0 mt-0.5" />
@@ -1107,7 +1257,7 @@ export const AdminDashboardView: React.FC = () => {
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1.5 p-1 bg-gray-800 rounded-lg text-xs font-semibold overflow-x-auto">
             <button
-              onClick={() => setActiveAdminTab('overview')}
+              onClick={() => handleTabChange('overview')}
               className={`px-3 py-1.5 rounded-md transition-colors ${
                 activeAdminTab === 'overview' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
               }`}
@@ -1115,7 +1265,7 @@ export const AdminDashboardView: React.FC = () => {
               Overview
             </button>
             <button
-              onClick={() => setActiveAdminTab('rfqs')}
+              onClick={() => handleTabChange('rfqs')}
               className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 ${
                 activeAdminTab === 'rfqs' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
               }`}
@@ -1128,7 +1278,7 @@ export const AdminDashboardView: React.FC = () => {
               )}
             </button>
             <button
-              onClick={() => setActiveAdminTab('quotations')}
+              onClick={() => handleTabChange('quotations')}
               className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 ${
                 activeAdminTab === 'quotations' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
               }`}
@@ -1142,7 +1292,7 @@ export const AdminDashboardView: React.FC = () => {
               )}
             </button>
             <button
-              onClick={() => setActiveAdminTab('products')}
+              onClick={() => handleTabChange('products')}
               className={`px-3 py-1.5 rounded-md transition-colors ${
                 activeAdminTab === 'products' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
               }`}
@@ -1150,7 +1300,7 @@ export const AdminDashboardView: React.FC = () => {
               Products ({products.length})
             </button>
             <button
-              onClick={() => setActiveAdminTab('categories')}
+              onClick={() => handleTabChange('categories')}
               className={`px-3 py-1.5 rounded-md transition-colors ${
                 activeAdminTab === 'categories' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
               }`}
@@ -1159,7 +1309,7 @@ export const AdminDashboardView: React.FC = () => {
             </button>
             {isSuperAdmin && (
               <button
-                onClick={() => setActiveAdminTab('admins')}
+                onClick={() => handleTabChange('admins')}
                 className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 ${
                   activeAdminTab === 'admins' ? 'bg-[#B5121B] text-white' : 'text-amber-300 hover:text-white'
                 }`}
@@ -1170,7 +1320,7 @@ export const AdminDashboardView: React.FC = () => {
               </button>
             )}
             <button
-              onClick={() => setActiveAdminTab('notifications')}
+              onClick={() => handleTabChange('notifications')}
               className={`px-3 py-1.5 rounded-md transition-colors flex items-center gap-1.5 ${
                 activeAdminTab === 'notifications' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
               }`}
@@ -1185,7 +1335,7 @@ export const AdminDashboardView: React.FC = () => {
               )}
             </button>
             <button
-              onClick={() => setActiveAdminTab('settings')}
+              onClick={() => handleTabChange('settings')}
               className={`px-3 py-1.5 rounded-md transition-colors ${
                 activeAdminTab === 'settings' ? 'bg-[#B5121B] text-white' : 'text-gray-300 hover:text-white'
               }`}
@@ -1454,6 +1604,127 @@ export const AdminDashboardView: React.FC = () => {
             </div>
           )}
 
+          {/* Deep-Linked Targeted RFQ Loading */}
+          {deepLinkLoading && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3 text-xs text-blue-900 shadow-2xs">
+              <Loader2 className="w-5 h-5 text-[#B5121B] animate-spin shrink-0" />
+              <div>
+                <p className="font-bold">Loading Targeted RFQ {targetedRfqId}...</p>
+                <p className="text-blue-700 text-[11px] mt-0.5">Querying quotation request details and line items from Supabase.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Deep-Linked RFQ Not Found / Error Banner */}
+          {deepLinkError && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start justify-between gap-3 text-xs text-amber-900 shadow-2xs">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <h4 className="font-bold text-amber-950">Targeted Quotation Request Notice</h4>
+                  <p className="text-amber-800 text-[11px] mt-0.5">{deepLinkError}</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleDismissDeepLink}
+                className="px-3 py-1.5 bg-amber-200 hover:bg-amber-300 text-amber-900 font-bold rounded-lg text-xs cursor-pointer transition-colors shrink-0 shadow-2xs"
+              >
+                Return to RFQ List
+              </button>
+            </div>
+          )}
+
+          {/* Featured Deep-Linked RFQ Action Card */}
+          {deepLinkedRfq && (
+            <div className="bg-white rounded-xl border-2 border-[#B5121B] shadow-md p-5 space-y-4 relative overflow-hidden">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-mono font-black text-base text-[#B5121B]">{deepLinkedRfq.id}</span>
+                  <span className="bg-[#B5121B] text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider flex items-center gap-1">
+                    <ExternalLink className="w-3 h-3" />
+                    Targeted from Email
+                  </span>
+                  <span className="text-gray-400">·</span>
+                  <span className="text-gray-900 font-bold">{deepLinkedRfq.customer.companyName || 'Private Customer'}</span>
+                  <span className="text-gray-400">·</span>
+                  <span className="text-gray-600">Attn: {deepLinkedRfq.customer.fullName}</span>
+                </div>
+
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => handleConvertRfqToQuote(deepLinkedRfq)}
+                    className="px-3.5 py-1.5 bg-[#B5121B] hover:bg-[#8F1018] text-white font-bold rounded-lg flex items-center gap-1.5 cursor-pointer shadow-2xs transition-colors text-xs"
+                    title="Convert this incoming customer RFQ into an official B2B Quotation"
+                  >
+                    <Calculator className="w-3.5 h-3.5 text-emerald-300" />
+                    <span>Create Official Quote</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setActiveRfqForPrint(deepLinkedRfq)}
+                    className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold rounded-lg flex items-center gap-1.5 cursor-pointer text-xs"
+                  >
+                    <Printer className="w-3.5 h-3.5" />
+                    <span>Print Slip</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDismissDeepLink}
+                    className="px-3 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-600 font-semibold rounded-lg border border-gray-200 cursor-pointer text-xs transition-colors"
+                  >
+                    Back to All RFQs
+                  </button>
+                </div>
+              </div>
+
+              {/* Details Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs bg-red-50/20 p-4 rounded-xl border border-red-100">
+                <div className="space-y-1">
+                  <p className="font-bold text-gray-400 text-[10px] uppercase tracking-wider">Contact & Account Details</p>
+                  <p className="text-gray-900 font-bold text-xs">{deepLinkedRfq.customer.fullName}</p>
+                  <p className="text-gray-600 text-[11px]">{deepLinkedRfq.customer.email}</p>
+                  <p className="text-gray-600 text-[11px]">{deepLinkedRfq.customer.mobileNumber}</p>
+                  {deepLinkedRfq.customer.tinNumber && (
+                    <p className="text-[11px] font-mono text-gray-500">TIN: {deepLinkedRfq.customer.tinNumber}</p>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <p className="font-bold text-gray-400 text-[10px] uppercase tracking-wider">Logistics & Delivery</p>
+                  <p className="text-gray-900 font-medium text-xs">{deepLinkedRfq.customer.deliveryCityProvince || 'Standard Delivery'}</p>
+                  <p className="text-gray-600 text-[11px]">{deepLinkedRfq.customer.deliveryAddress || 'Address on file'}</p>
+                  {deepLinkedRfq.customer.targetDeliveryDate && (
+                    <p className="text-[11px] text-gray-500">Target Date: {deepLinkedRfq.customer.targetDeliveryDate}</p>
+                  )}
+                </div>
+
+                <div className="space-y-1">
+                  <p className="font-bold text-gray-400 text-[10px] uppercase tracking-wider">Quotation Summary</p>
+                  <div className="font-mono font-bold text-emerald-700 text-sm">
+                    ₱{(deepLinkedRfq.totalEstimatedPhp || 0).toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                  </div>
+                  <p className="text-gray-500 text-[11px]">
+                    {deepLinkedRfq.items.length} requested models ({deepLinkedRfq.items.reduce((sum, item) => sum + item.quantity, 0)} units)
+                  </p>
+                  <p className="text-[10px] text-gray-400">
+                    Status: <span className="font-bold text-gray-700">{deepLinkedRfq.status}</span>
+                  </p>
+                </div>
+              </div>
+
+              {deepLinkedRfq.customer.additionalRequirements && (
+                <div className="bg-amber-50/60 border border-amber-200/60 rounded-lg p-2.5 text-[11px] text-amber-900">
+                  <span className="font-bold">Customer Notes: </span>
+                  <span>{deepLinkedRfq.customer.additionalRequirements}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Quotations List / Loading / Empty States */}
           {rfqsLoading && rfqRequests.length === 0 ? (
             <div className="bg-white rounded-xl border border-gray-200 p-12 text-center text-gray-500 space-y-3 shadow-2xs">
@@ -1478,11 +1749,22 @@ export const AdminDashboardView: React.FC = () => {
               {filteredRfqs.map((rfq) => (
                 <div
                   key={rfq.id}
-                  className="bg-white rounded-xl border border-gray-200 shadow-2xs p-5 space-y-4 hover:border-gray-300 transition-all text-xs"
+                  id={`rfq-${rfq.id}`}
+                  className={`bg-white rounded-xl border shadow-2xs p-5 space-y-4 transition-all text-xs ${
+                    highlightedRfqId === rfq.id
+                      ? 'border-2 border-[#B5121B] ring-2 ring-[#B5121B]/20 bg-red-50/10'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-gray-100 pb-3">
-                    <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 flex-wrap">
                       <span className="font-mono font-black text-sm text-[#B5121B]">{rfq.id}</span>
+                      {highlightedRfqId === rfq.id && (
+                        <span className="bg-[#B5121B] text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider flex items-center gap-1">
+                          <ExternalLink className="w-3 h-3" />
+                          Email Target
+                        </span>
+                      )}
                       <span className="text-gray-400">·</span>
                       <span className="text-gray-700 font-bold">{rfq.customer.companyName || 'Private Individual'}</span>
                       <span className="text-gray-400">·</span>
