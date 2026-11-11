@@ -218,9 +218,15 @@ serve(async (req: Request) => {
     }
 
     // 6. Load verified business settings from public.site_settings
-    // Strictly omit fictional details; if unavailable in DB, only include corporate name
+    // Ensure verified corporate details from Supabase and replace outdated Pasig/Ortigas addresses
     let siteSettings: SiteSettings = {
       company_name: "ZEZ Automation Corporation",
+      tagline: "Technology. Infrastructure. Reliability.",
+      phone_primary: "+63 917 719 8503",
+      phone_secondary: "+63 995 444 8050",
+      mobile_viber: "+63 917 719 8503",
+      email_sales: "zigmatechdvo2003@gmail.com",
+      office_address: "Blk 32, Lot 20, Phase 2, Deca Homes Esperanza, Tigatto, Davao City 8000, Philippines",
     };
 
     try {
@@ -231,18 +237,24 @@ serve(async (req: Request) => {
         .maybeSingle();
 
       if (settingsRow) {
+        const rawAddress = settingsRow.office_address?.trim() || "";
+        const isOutdatedPasig = /pasig|ortigas/i.test(rawAddress);
+        const verifiedAddress = isOutdatedPasig
+          ? (settingsRow.davao_address?.trim() || "Blk 32, Lot 20, Phase 2, Deca Homes Esperanza, Tigatto, Davao City 8000, Philippines")
+          : rawAddress || "Blk 32, Lot 20, Phase 2, Deca Homes Esperanza, Tigatto, Davao City 8000, Philippines";
+
         siteSettings = {
           company_name: settingsRow.company_name?.trim() || "ZEZ Automation Corporation",
-          tagline: settingsRow.tagline?.trim() || undefined,
-          phone_primary: settingsRow.phone_primary?.trim() || undefined,
-          phone_secondary: settingsRow.phone_secondary?.trim() || undefined,
-          mobile_viber: settingsRow.mobile_viber?.trim() || undefined,
-          email_sales: settingsRow.email_sales?.trim() || undefined,
-          office_address: settingsRow.office_address?.trim() || undefined,
+          tagline: settingsRow.tagline?.trim() || "Technology. Infrastructure. Reliability.",
+          phone_primary: settingsRow.phone_primary?.trim() || "+63 917 719 8503",
+          phone_secondary: settingsRow.phone_secondary?.trim() || "+63 995 444 8050",
+          mobile_viber: settingsRow.mobile_viber?.trim() || "+63 917 719 8503",
+          email_sales: settingsRow.email_sales?.trim() || "zigmatechdvo2003@gmail.com",
+          office_address: verifiedAddress,
         };
       }
     } catch (settingsErr) {
-      console.warn("[ZEZ Notify-RFQ] Using verified base corporate name:", settingsErr);
+      console.warn("[ZEZ Notify-RFQ] Using verified fallback corporate contact details:", settingsErr);
     }
 
     let dispatchedCount = 0;

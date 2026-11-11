@@ -418,6 +418,76 @@ export async function fetchAdminRfqsFromSupabase(): Promise<FetchAdminRfqsResult
 }
 
 /**
+ * Fetches a single quotation request and its line items by reference ID.
+ * Used for administrative deep-link navigation from notification emails.
+ */
+export async function fetchAdminRfqByIdFromSupabase(
+  rfqId: string
+): Promise<{ data: QuotationRequest | null; error: string | null }> {
+  if (!isSupabaseConfigured() || !supabase) {
+    return { data: null, error: null };
+  }
+
+  try {
+    const { data: row, error } = await supabase
+      .from('quotation_requests')
+      .select('*, quotation_items(*)')
+      .eq('id', rfqId)
+      .maybeSingle();
+
+    if (error) {
+      console.warn(`[ZEZ Supabase] Error fetching RFQ ${rfqId}:`, error.message);
+      return { data: null, error: error.message };
+    }
+
+    if (!row) {
+      return { data: null, error: `Quotation request ${rfqId} not found.` };
+    }
+
+    const mapped: QuotationRequest = {
+      id: row.id,
+      createdAt: row.created_at,
+      status: row.status,
+      customer: {
+        fullName: row.customer_full_name,
+        companyName: row.customer_company_name || '',
+        email: row.customer_email,
+        mobileNumber: row.customer_mobile_number,
+        deliveryCityProvince: row.delivery_city_province,
+        deliveryAddress: row.delivery_address || '',
+        tinNumber: row.tin_number || '',
+        customerType: row.customer_type,
+        preferredContactMethod: row.preferred_contact_method,
+        targetDeliveryDate: row.target_delivery_date || undefined,
+        additionalRequirements: row.additional_requirements || ''
+      },
+      items: (row.quotation_items || []).map((it: any) => ({
+        productId: it.product_id || '',
+        productName: it.product_name,
+        model: it.model,
+        brand: it.brand,
+        sku: it.sku,
+        mainImage: it.main_image || '',
+        quantity: it.quantity,
+        unitPricePhp: it.unit_price_php !== null ? Number(it.unit_price_php) : undefined,
+        subtotalPhp: it.subtotal_php !== null ? Number(it.subtotal_php) : undefined,
+        notes: it.notes || ''
+      })),
+      totalEstimatedPhp: row.total_estimated_php !== null ? Number(row.total_estimated_php) : undefined,
+      adminNotes: row.admin_notes || '',
+      assignedSpecialist: row.assigned_specialist || 'Marco Rivera (Enterprise Account Manager)',
+      validUntil: row.valid_until || '',
+      isDemo: Boolean(row.is_demo)
+    };
+
+    return { data: mapped, error: null };
+  } catch (err: any) {
+    console.warn(`[ZEZ Supabase] Unexpected error fetching RFQ ${rfqId}:`, err);
+    return { data: null, error: err?.message || 'Failed to query quotation request.' };
+  }
+}
+
+/**
  * Updates an RFQ status in Supabase (Authorized Administrators only).
  */
 export async function syncRfqStatusToSupabase(rfqId: string, status: string, notes?: string): Promise<boolean> {

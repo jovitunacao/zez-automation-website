@@ -118,6 +118,10 @@ interface AppContextType {
   adminLogin: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   adminLogout: () => Promise<void>;
   updateOwnNotificationPreference: (enabled: boolean) => Promise<{ success: boolean; error?: string }>;
+
+  // Deep-Link Admin Navigation
+  pendingAdminTarget: { tab?: string; rfqId?: string } | null;
+  clearPendingAdminTarget: () => void;
 }
 
 const INITIAL_SETTINGS: SiteSettings = {
@@ -248,12 +252,66 @@ const LEGACY_MOCK_SAMPLE_IDS = new Set([
 ]);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Navigation
+  // Navigation & Deep-Link Destination Preservation
+  const [pendingAdminTarget, setPendingAdminTarget] = useState<{ tab?: string; rfqId?: string } | null>(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const view = params.get('view');
+      const tab = params.get('tab') || undefined;
+      const rfq = params.get('rfq') || undefined;
+
+      // If URL explicitly targets admin with tab or rfq
+      if (view === 'admin' && (tab || rfq)) {
+        const target = { tab: tab || (rfq ? 'rfqs' : 'overview'), rfqId: rfq };
+        try {
+          sessionStorage.setItem('zez_admin_pending_target', JSON.stringify(target));
+        } catch (_) {}
+        return target;
+      }
+
+      // Check session storage for preserved target across refresh/login
+      try {
+        const stored = sessionStorage.getItem('zez_admin_pending_target');
+        if (stored) return JSON.parse(stored);
+      } catch (_) {}
+    }
+    return null;
+  });
+
+  const clearPendingAdminTarget = () => {
+    setPendingAdminTarget(null);
+    if (typeof window !== 'undefined') {
+      try {
+        sessionStorage.removeItem('zez_admin_pending_target');
+      } catch (_) {}
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('rfq')) {
+        params.delete('rfq');
+        const newSearch = params.toString() ? `?${params.toString()}` : window.location.pathname;
+        window.history.replaceState({}, '', newSearch);
+      }
+    }
+  };
+
   const [activeView, setActiveView] = useState<ActiveView>(() => {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
+      // 1. Customer quotation review token link takes precedence
       if (params.get('quote_token')) {
         return 'customer-quote';
+      }
+      // 2. Admin view parameter
+      const viewParam = params.get('view');
+      if (viewParam === 'admin') {
+        return 'admin';
+      }
+      // 3. Other recognized storefront views
+      const VALID_VIEWS: ActiveView[] = [
+        'home', 'shop', 'categories', 'brands', 'services', 
+        'product-detail', 'rfq', 'account', 'admin', 'about', 'contact', 'customer-quote'
+      ];
+      if (viewParam && VALID_VIEWS.includes(viewParam as ActiveView)) {
+        return viewParam as ActiveView;
       }
     }
     return 'home';
@@ -355,7 +413,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(() => {
     try {
       const stored = localStorage.getItem('zez_site_settings');
-      if (stored) return JSON.parse(stored);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.officeAddress && /pasig|ortigas/i.test(parsed.officeAddress)) {
+          parsed.officeAddress = INITIAL_SETTINGS.officeAddress;
+        }
+        return { ...INITIAL_SETTINGS, ...parsed };
+      }
     } catch (e) {
       console.error(e);
     }
@@ -617,10 +681,73 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [activeView, selectedProductId]);
 
+  const handleSetActiveView = (newView: ActiveView) => {
+    setActiveView(newView);
+    if (typeof window !== 'undefined') {
+      const currentParams = new URLSearchParams(window.location.search);
+      // Preserve customer quote token links
+      if (newView === 'customer-quote' && currentParams.get('quote_token')) {
+        return;
+      }
+      if (newView === 'home') {
+        if (currentParams.has('view')) {
+          window.history.pushState({ view: 'home' }, '', window.location.pathname);
+        }
+      } else if (newView === 'admin') {
+        const tab = currentParams.get('tab') || pendingAdminTarget?.tab;
+        const rfq = currentParams.get('rfq') || pendingAdminTarget?.rfqId;
+        const query = new URLSearchParams();
+        query.set('view', 'admin');
+        if (tab) query.set('tab', tab);
+        if (rfq) query.set('rfq', rfq);
+        window.history.pushState({ view: 'admin' }, '', `${window.location.pathname}?${query.toString()}`);
+      } else {
+        window.history.pushState({ view: newView }, '', `${window.location.pathname}?view=${newView}`);
+      }
+    }
+  };
+
+  // Browser back/forward navigation synchronization
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('quote_token')) {
+        setActiveView('customer-quote');
+        return;
+      }
+      const view = params.get('view');
+      if (view === 'admin') {
+        setActiveView('admin');
+        const tab = params.get('tab');
+        const rfq = params.get('rfq');
+        if (tab || rfq) {
+          const target = { tab: tab || (rfq ? 'rfqs' : 'overview'), rfqId: rfq || undefined };
+          setPendingAdminTarget(target);
+          try {
+            sessionStorage.setItem('zez_admin_pending_target', JSON.stringify(target));
+          } catch (_) {}
+        }
+        return;
+      }
+      const VALID_VIEWS: ActiveView[] = [
+        'home', 'shop', 'categories', 'brands', 'services', 
+        'product-detail', 'rfq', 'account', 'admin', 'about', 'contact', 'customer-quote'
+      ];
+      if (view && VALID_VIEWS.includes(view as ActiveView)) {
+        setActiveView(view as ActiveView);
+      } else {
+        setActiveView('home');
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   // Handlers
   const navigateToProduct = (productId: string) => {
     setSelectedProductId(productId);
-    setActiveView('product-detail');
+    handleSetActiveView('product-detail');
   };
 
   const navigateToCategory = (categoryId: string) => {
@@ -629,7 +756,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       selectedCategories: [categoryId],
       searchQuery: ''
     }));
-    setActiveView('shop');
+    handleSetActiveView('shop');
   };
 
   const navigateToBrand = (brandName: string) => {
@@ -638,7 +765,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       selectedBrands: [brandName],
       searchQuery: ''
     }));
-    setActiveView('shop');
+    handleSetActiveView('shop');
   };
 
   const resetFilters = () => {
@@ -947,7 +1074,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider
       value={{
         activeView,
-        setActiveView,
+        setActiveView: handleSetActiveView,
         selectedProductId,
         navigateToProduct,
         navigateToCategory,
@@ -1000,7 +1127,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isAdminAuthenticated,
         adminLogin,
         adminLogout,
-        updateOwnNotificationPreference: handleUpdateOwnNotificationPreference
+        updateOwnNotificationPreference: handleUpdateOwnNotificationPreference,
+        pendingAdminTarget,
+        clearPendingAdminTarget
       }}
     >
       {children}
