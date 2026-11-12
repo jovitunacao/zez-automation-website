@@ -61,7 +61,8 @@ function mapRowToProduct(row: any): Product {
     datasheetFileName: row.datasheet_file_name || undefined,
     isDemo: Boolean(row.is_demo),
     isPublished: row.is_published !== undefined && row.is_published !== null ? Boolean(row.is_published) : true,
-    imageStatus: row.image_status || undefined
+    imageStatus: row.image_status || undefined,
+    salesUnit: row.sales_unit || 'unit'
   };
 }
 
@@ -85,6 +86,7 @@ function mapProductToRow(prod: Product): any {
     stock_status: prod.stockStatus,
     lead_time_days: prod.leadTimeDays ?? 1,
     warranty: prod.warranty,
+    sales_unit: prod.salesUnit || 'unit',
     is_featured: prod.isFeatured ?? false,
     is_new_arrival: prod.isNewArrival ?? false,
     is_published: prod.isPublished !== undefined ? Boolean(prod.isPublished) : true,

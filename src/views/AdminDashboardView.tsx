@@ -50,7 +50,8 @@ import {
   FilePlus,
   Copy,
   ExternalLink,
-  Download
+  Download,
+  FileSpreadsheet
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { 
@@ -99,6 +100,7 @@ import {
 import { downloadQuotationPdf } from '../services/quotationPdfService';
 import { QuotationMakerModal } from '../components/quotation/QuotationMakerModal';
 import { QuotationPrintView } from '../components/quotation/QuotationPrintView';
+import { ProductExcelImportModal } from '../components/admin/ProductExcelImportModal';
 
 export const AdminDashboardView: React.FC = () => {
   const { 
@@ -236,9 +238,10 @@ export const AdminDashboardView: React.FC = () => {
   const [deleteConfirmLoading, setDeleteConfirmLoading] = useState(false);
   const [tableActionError, setTableActionError] = useState<string | null>(null);
 
-  // Product modal
+  // Product modal & Excel Import modal
   const [productModalOpen, setProductModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isExcelImportOpen, setIsExcelImportOpen] = useState(false);
 
   // Form state for add/edit product
   const [keySpecsText, setKeySpecsText] = useState('');
@@ -2270,13 +2273,24 @@ export const AdminDashboardView: React.FC = () => {
               </p>
             </div>
 
-            <button
-              onClick={handleOpenAddProduct}
-              className="px-4 py-2 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer shrink-0"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add New Equipment</span>
-            </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={() => setIsExcelImportOpen(true)}
+                className="px-3.5 py-2 bg-gray-900 hover:bg-black text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer shrink-0"
+                title="Upload .xlsx spreadsheet to batch create or update equipment"
+              >
+                <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                <span>Bulk Excel Import</span>
+              </button>
+
+              <button
+                onClick={handleOpenAddProduct}
+                className="px-4 py-2 bg-[#B5121B] hover:bg-[#8F1018] text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add New Equipment</span>
+              </button>
+            </div>
           </div>
 
           {/* Search & Publication Filters */}
@@ -4025,6 +4039,21 @@ export const AdminDashboardView: React.FC = () => {
         <QuotationPrintView
           quotation={selectedQuotationForPrint}
           onClose={() => setSelectedQuotationForPrint(null)}
+        />
+      )}
+
+      {/* EXCEL BULK PRODUCT IMPORT MODAL */}
+      {isExcelImportOpen && (
+        <ProductExcelImportModal
+          isOpen={isExcelImportOpen}
+          onClose={() => setIsExcelImportOpen(false)}
+          existingProducts={products}
+          categories={categories}
+          brands={brands}
+          adminUser={adminUser}
+          onImportComplete={async () => {
+            await refreshProducts();
+          }}
         />
       )}
     </div>
